@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection
+    match /users/{userId} {
+      // Users can read/write their own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Usage subcollection (monthly usage tracking)
+      match /usage/{monthId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false; // Only Cloud Functions can write
+      }
+      
+      // Notifications subcollection
+      match /notifications/{notificationId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null 
+                      && request.auth.uid == userId
+                      && request.resource.data.keys().hasOnly(['read']);
+        allow delete: if request.auth != null && request.auth.uid == userId;
+        allow create: if false; // Only Cloud Functions can create
+      }
+      
+      // Items subcollection (wardrobe items)
+      match /items/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // Public data (e.g., tier pricing)
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // System collection (spending, analytics) - admin only
+    match /system/{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Analytics collection - admin only
+    match /analytics/{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
