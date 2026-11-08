@@ -112,17 +112,25 @@ exports.getQuotaStatus = functions.https.onCall(async (data, context) => {
     };
 });
 /**
- * HTTP endpoint to upgrade user to premium
- * In production, this would verify with App Store/Play Store
+ * HTTP endpoint to upgrade user to premium.
+ *
+ * Purchases are not verified with the App Store / Play Store yet, so outside
+ * the local emulator this refuses every request. Otherwise any signed-in user
+ * could call it and get premium for free.
  */
 exports.upgradeToPremium = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
     }
+    // TODO: Verify purchaseToken with App Store / Play Store, then remove this guard.
+    if (process.env.FUNCTIONS_EMULATOR !== 'true') {
+        throw new functions.https.HttpsError('failed-precondition', 'Purchase verification is not available yet');
+    }
     const userId = context.auth.uid;
-    const { purchaseToken: _purchaseToken, platform } = data;
-    // TODO: Verify purchase with App Store / Play Store
-    // For now, just update the user's tier
+    const platform = data?.platform;
+    if (platform !== 'ios' && platform !== 'android') {
+        throw new functions.https.HttpsError('invalid-argument', 'platform must be ios or android');
+    }
     const db = admin.firestore();
     await db.collection('users').doc(userId).set({
         subscriptionTier: 'premium',

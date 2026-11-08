@@ -1,10 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Fields only Cloud Functions may set. The quota system reads
+    // subscriptionTier, so letting users write it would unlock premium.
+    function serverOnlyUserFields() {
+      return ['subscriptionTier', 'subscriptionPlatform', 'subscriptionUpdatedAt',
+              'itemsCount', 'lastItemAddedAt'];
+    }
+
     // Users collection
     match /users/{userId} {
-      // Users can read/write their own document
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Users can read and edit their own document, except server-only fields
+      allow read, delete: if isOwner(userId);
+      allow create: if isOwner(userId)
+                    && !request.resource.data.keys().hasAny(serverOnlyUserFields());
+      allow update: if isOwner(userId)
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                        .hasAny(serverOnlyUserFields());
       
       // Usage subcollection (monthly usage tracking)
       match /usage/{monthId} {
