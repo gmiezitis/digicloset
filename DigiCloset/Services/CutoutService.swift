@@ -12,17 +12,18 @@ enum CutoutService {
         let thumbnail: Data
         let dominantHex: String
         let didRemoveBackground: Bool
+        let recognition: Recognition
     }
 
     enum Failure: Error { case unreadableImage }
 
-    private nonisolated(unsafe) static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let context = CIContext(options: [.cacheIntermediates: false])
 
-    static func process(_ data: Data) async throws -> Output {
-        try await Task.detached(priority: .userInitiated) { try run(data) }.value
+    static func process(_ data: Data, forPet: Bool = false) async throws -> Output {
+        try await Task.detached(priority: .userInitiated) { try run(data, forPet: forPet) }.value
     }
 
-    private nonisolated static func run(_ data: Data) throws -> Output {
+    private nonisolated static func run(_ data: Data, forPet: Bool) throws -> Output {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let photo = downsample(source, maxPixel: 1600) else { throw Failure.unreadableImage }
 
@@ -42,7 +43,11 @@ enum CutoutService {
               let thumbImage = downsample(thumbSource, maxPixel: 480),
               let thumb = encodePNG(thumbImage) else { throw Failure.unreadableImage }
 
-        return Output(cutout: full, thumbnail: thumb, dominantHex: dominantHex(result), didRemoveBackground: removed)
+        // Classify the clean cutout on white when we have one: less clutter, better labels.
+        let classifyImage = removed ? onWhite(result) : photo
+        let recognition = GarmentRecognizer.recognize(cutout: result, classifyImage: classifyImage, hasAlpha: removed, forPet: forPet)
+        return Output(cutout: full, thumbnail: thumb, dominantHex: recognition.palette.first ?? dominantHex(result),
+                      didRemoveBackground: removed, recognition: recognition)
     }
 
     // MARK: Masks
@@ -187,6 +192,19 @@ enum CutoutService {
         return CGRect(x: max(0, minX - pad), y: max(0, minY - pad),
                       width: min(w, maxX + pad + 1) - max(0, minX - pad),
                       height: min(h, maxY + pad + 1) - max(0, minY - pad))
+    }
+
+    private nonisolated static func onWhite(_ image: CGImage) -> CGImage? {
+        let scale = min(1, 512 / Double(max(image.width, image.height)))
+        let w = max(1, Int(Double(image.width) * scale)), h = max(1, Int(Double(image.height) * scale))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
     }
 
     // MARK: Encoding

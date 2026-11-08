@@ -9,6 +9,7 @@ enum SampleData {
         guard (try? context.fetchCount(FetchDescriptor<Wearer>())) == 0 else { return }
 
         let me = Wearer(name: "Me", kind: .woman, accentHex: "C9A27E", sortIndex: 0)
+        me.isSelf = true
         let sofia = Wearer(name: "Sofia", kind: .woman, accentHex: "D8A7A0", sortIndex: 1)
         let biscuit = Wearer(name: "Biscuit", kind: .dog, accentHex: "B8946A", sortIndex: 2)
         let luna = Wearer(name: "Luna", kind: .cat, accentHex: "9AA7B8", sortIndex: 3)

@@ -1,111 +1,6 @@
 import Foundation
 import SwiftData
 
-// MARK: - Kinds and categories
-
-enum WearerKind: String, CaseIterable, Identifiable, Sendable {
-    case woman, man, child, dog, cat
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .woman: "Woman"
-        case .man: "Man"
-        case .child: "Kid"
-        case .dog: "Dog"
-        case .cat: "Cat"
-        }
-    }
-
-    var mannequin: String { "mannequin_\(rawValue)" }
-    var isPet: Bool { self == .dog || self == .cat }
-
-    /// Width ÷ height of the mannequin cutout.
-    var aspect: CGFloat {
-        switch self {
-        case .woman: 254.0 / 864.0
-        case .man: 288.0 / 944.0
-        case .child: 238.0 / 886.0
-        case .dog: 700.0 / 684.0
-        case .cat: 434.0 / 724.0
-        }
-    }
-
-    /// Height next to an adult, used when figures stand side by side.
-    var relativeHeight: CGFloat {
-        switch self {
-        case .woman: 1
-        case .man: 1.04
-        case .child: 0.78
-        case .dog: 0.44
-        case .cat: 0.36
-        }
-    }
-
-    /// Height when a figure is shown on its own (pets get a little bigger).
-    var soloHeight: CGFloat {
-        switch self {
-        case .dog: 0.52
-        case .cat: 0.5
-        default: relativeHeight
-        }
-    }
-
-    var categories: [GarmentCategory] { isPet ? GarmentCategory.petCases : GarmentCategory.humanCases }
-}
-
-enum GarmentCategory: String, CaseIterable, Identifiable, Sendable {
-    case top, outerwear, dress, bottom, skirt, shoes, hat, bag, sweater, collar, bandana
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .top: "Tops"
-        case .outerwear: "Outerwear"
-        case .dress: "Dresses"
-        case .bottom: "Trousers"
-        case .skirt: "Skirts"
-        case .shoes: "Shoes"
-        case .hat: "Hats"
-        case .bag: "Bags"
-        case .sweater: "Sweaters"
-        case .collar: "Collars"
-        case .bandana: "Bandanas"
-        }
-    }
-
-    static let humanCases: [GarmentCategory] = [.top, .outerwear, .dress, .bottom, .skirt, .shoes, .hat, .bag]
-    static let petCases: [GarmentCategory] = [.sweater, .collar, .bandana]
-
-    /// Draw order on the figure; higher sits on top.
-    var layer: Int {
-        switch self {
-        case .bottom, .skirt: 0
-        case .dress: 1
-        case .top, .sweater: 2
-        case .shoes: 3
-        case .outerwear: 4
-        case .bandana: 5
-        case .collar: 6
-        case .hat: 7
-        case .bag: 8
-        }
-    }
-
-    /// Pieces that can't be worn together (a dress replaces top + bottom).
-    var conflicts: Set<GarmentCategory> {
-        switch self {
-        case .dress: [.top, .bottom, .skirt]
-        case .top: [.dress]
-        case .bottom: [.dress, .skirt]
-        case .skirt: [.dress, .bottom]
-        default: []
-        }
-    }
-}
-
 // MARK: - Stored models
 
 @Model
@@ -116,6 +11,11 @@ final class Wearer {
     var accentHex: String = "C9A27E"
     var sortIndex: Int = 0
     var createdAt: Date = Date.now
+    /// The app's owner, as opposed to friends and pets.
+    var isSelf: Bool = false
+    var bodyShapeRaw: String = ""
+    var heightCm: Double = 0
+    var weightKg: Double = 0
 
     @Relationship(deleteRule: .cascade, inverse: \Garment.wearer) var garments: [Garment]? = []
     @Relationship(deleteRule: .cascade, inverse: \Look.wearer) var looks: [Look]? = []
@@ -131,6 +31,15 @@ final class Wearer {
         get { WearerKind(rawValue: kindRaw) ?? .woman }
         set { kindRaw = newValue.rawValue }
     }
+
+    var bodyShape: BodyShape? {
+        get { BodyShape(rawValue: bodyShapeRaw) }
+        set { bodyShapeRaw = newValue?.rawValue ?? "" }
+    }
+
+    /// How this person's figure is drawn: a little wider or taller than the
+    /// standard mannequin, from their height and weight.
+    var fit: BodyFit { BodyFit.make(kind: kind, heightCm: heightCm, weightKg: weightKg) }
 }
 
 @Model
@@ -144,6 +53,8 @@ final class Garment {
     var brand: String = ""
     var categoryRaw: String = GarmentCategory.top.rawValue
     var colorHex: String = "D9D4CC"
+    /// Secondary colours found in the photo (stripes, prints, trims).
+    var paletteHexes: [String] = []
     @Attribute(.externalStorage) var imageData: Data?
     var thumbnailData: Data?
     var wearCount: Int = 0
@@ -190,6 +101,7 @@ final class Look {
     }
 
     var kind: WearerKind { wearer?.kind ?? .woman }
+    var fit: BodyFit { wearer?.fit ?? .standard }
     var items: [Garment] { (garments ?? []).sorted { $0.category.layer < $1.category.layer } }
     var layers: [FigureLayer] { items.map(\.layer) }
     var palette: [String] { items.map(\.colorHex).uniqued() }

@@ -7,6 +7,10 @@ struct RunwayView: View {
     @Query(sort: \Wearer.sortIndex) private var wearers: [Wearer]
     @Query(sort: \Look.createdAt, order: .reverse) private var looks: [Look]
     @Query(sort: \MatchSet.createdAt, order: .reverse) private var sets: [MatchSet]
+    @Query private var profiles: [UserProfile]
+    @Namespace private var zoom
+    @State private var showStyle = false
+    @State private var didPickMode = false
 
     @State private var mode: Mode = .looks
     @State private var filter: UUID?
@@ -42,7 +46,18 @@ struct RunwayView: View {
             .scrollIndicators(.hidden)
             .background(StudioBackground())
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(item: $openLook) { LookDetailView(look: $0) }
+            .navigationDestination(item: $openLook) { look in
+                LookDetailView(look: look).navigationTransition(.zoom(sourceID: look.id, in: zoom))
+            }
+            .sheet(isPresented: $showStyle) {
+                if let profile = profiles.first { StyleProfileView(profile: profile) }
+            }
+            .onAppear {
+                // Friends- and pet-focused users land on matching sets.
+                guard !didPickMode else { return }
+                didPickMode = true
+                if let goal = profiles.first?.primaryGoal, [.matchFriends, .dressPets].contains(goal), !sets.isEmpty { mode = .sets }
+            }
             .sheet(item: $openGarment) { GarmentDetailView(garment: $0).presentationDetents([.medium, .large]) }
             .sheet(isPresented: $showBuilder) { LookBuilderView() }
         }
@@ -50,15 +65,35 @@ struct RunwayView: View {
 
     // MARK: Header
 
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: .now)
+        let part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+        let name = profiles.first?.name ?? ""
+        return name.isEmpty ? part : "\(part), \(name)"
+    }
+
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 6) {
-                Eyebrow("DigiCloset")
+                Eyebrow(greeting)
                 Text("Try the Look.")
                     .font(Theme.display(40))
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
+            Button { showStyle = true } label: {
+                Group {
+                    if let me = wearers.first(where: \.isSelf) {
+                        WearerAvatar(wearer: me, size: 46)
+                    } else {
+                        Image(systemName: "person.crop.circle").font(.system(size: 28))
+                    }
+                }
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+            }
+            .buttonStyle(PressableStyle())
+            .foregroundStyle(Theme.ink)
+            .accessibilityLabel("Your style")
             Button { showBuilder = true } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .semibold))
@@ -111,6 +146,7 @@ struct RunwayView: View {
         } else {
             Carousel(items: visibleLooks, focused: $focusedLook, widthRatio: 0.56) { look, isFocused in
                 LookCard(look: look, isFocused: isFocused)
+                    .matchedTransitionSource(id: look.id, in: zoom)
             } onTapFocused: { openLook = $0 }
 
             if let look = visibleLooks.first(where: { $0.id == focusedLook }) ?? visibleLooks.first {
@@ -195,14 +231,14 @@ struct LookCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            StandingFigure(kind: look.kind, layers: look.layers, height: 380)
+            StandingFigure(kind: look.kind, layers: look.layers, height: 380, fit: look.fit)
                 .frame(height: 400, alignment: .bottom)
             VStack(spacing: 4) {
                 Text(look.name)
                     .font(Theme.display(21))
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
-                Text("\(look.wearer?.name ?? "") · \(look.items.count) pieces")
+                Text("\(look.wearer?.name ?? "") · \(look.items.count == 1 ? "1 piece" : "\(look.items.count) pieces")")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.muted)
             }

@@ -63,10 +63,10 @@ struct LookBuilderView: View {
         VStack(spacing: 12) {
             HStack(alignment: .bottom, spacing: 0) {
                 if let owner {
-                    StandingFigure(kind: owner.kind, layers: picked.map(\.layer), height: 300, solo: partner == nil)
+                    StandingFigure(kind: owner.kind, layers: picked.map(\.layer), height: 300, solo: partner == nil, fit: owner.fit)
                 }
                 if let partner {
-                    StandingFigure(kind: partner.kind, layers: suggestion.map(\.layer), height: 300, solo: false)
+                    StandingFigure(kind: partner.kind, layers: suggestion.map(\.layer), height: 300, solo: false, fit: partner.fit)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -206,6 +206,10 @@ struct LookBuilderView: View {
             let set = MatchSet(name: title)
             context.insert(set)
             set.looks = [look, partnerLook]
+            Personalizer.record(.matched, garments: picked + suggestion,
+                                feature: partner.kind.isPet ? .dressPets : .matchFriends, in: context)
+        } else {
+            Personalizer.record(.saved, garments: picked, in: context)
         }
         dismiss()
     }

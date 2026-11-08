@@ -26,6 +26,7 @@ struct LookDetailView: View {
                         withAnimation(.spring(duration: 0.4, bounce: 0.25)) { selected = selected == id ? nil : id }
                     }
                     .frame(height: 520 * look.kind.soloHeight)
+                    .scaleEffect(x: look.fit.width, y: 1, anchor: .bottom)
                 }
                 .frame(height: 540, alignment: .bottom)
                 .padding(.top, 10)
@@ -109,6 +110,7 @@ struct LookDetailView: View {
                                 let entry = PlanEntry(day: planDate)
                                 context.insert(entry)
                                 entry.look = look
+                                Personalizer.record(.planned, garments: look.items, feature: .plan, in: context)
                                 showPlanner = false
                             }
                         }
@@ -121,6 +123,7 @@ struct LookDetailView: View {
     private func wearToday() {
         guard !woreToday else { return }
         look.items.forEach { $0.wearCount += 1 }
+        Personalizer.record(.wore, garments: look.items, in: context)
         woreToday = true
     }
 }

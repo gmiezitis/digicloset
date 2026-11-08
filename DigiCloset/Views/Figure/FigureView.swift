@@ -170,16 +170,20 @@ struct StandingFigure: View {
     let layers: [FigureLayer]
     let height: CGFloat
     var solo = true
+    var fit: BodyFit = .standard
 
     var body: some View {
-        let h = height * (solo ? kind.soloHeight : kind.relativeHeight)
+        let h = height * (solo ? kind.soloHeight : kind.relativeHeight * fit.height)
         ZStack(alignment: .bottom) {
             FloorShadow()
-                .frame(width: max(h * kind.aspect * 0.95, 60))
+                .frame(width: max(h * kind.aspect * 0.95 * fit.width, 60))
                 .offset(y: 8)
             FigureView(kind: kind, layers: layers)
                 .frame(height: h)
+                .scaleEffect(x: fit.width, y: 1, anchor: .bottom)
+                .frame(width: h * kind.aspect * fit.width)
         }
+        .animation(.smooth, value: fit)
     }
 }
 
@@ -191,7 +195,7 @@ struct GroupFigure: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: -height * 0.04) {
             ForEach(looks) { look in
-                StandingFigure(kind: look.kind, layers: look.layers, height: height, solo: false)
+                StandingFigure(kind: look.kind, layers: look.layers, height: height, solo: false, fit: look.fit)
             }
         }
     }

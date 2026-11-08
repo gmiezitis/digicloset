@@ -18,8 +18,8 @@ struct ClosetView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Eyebrow("\(current?.garments?.count ?? 0) pieces")
-                        Text(current.map { $0.kind.isPet ? "\($0.name)'s wardrobe" : ($0.name == "Me" ? "My closet" : "\($0.name)'s closet") } ?? "Closet")
+                        Eyebrow((current?.garments?.count ?? 0) == 1 ? "1 piece" : "\(current?.garments?.count ?? 0) pieces")
+                        Text(current.map { $0.kind.isPet ? "\($0.name)'s wardrobe" : ($0.isSelf ? "My closet" : "\($0.name)'s closet") } ?? "Closet")
                             .font(Theme.display(36))
                             .contentTransition(.opacity)
                     }
@@ -145,7 +145,7 @@ struct GarmentGrid: View {
                         .buttonStyle(PressableStyle())
                         .contextMenu {
                             Button(garment.isFavorite ? "Unfavourite" : "Favourite", systemImage: garment.isFavorite ? "heart.slash" : "heart") {
-                                garment.isFavorite.toggle()
+                                Personalizer.toggleFavorite(garment, in: context)
                             }
                             Button("Delete", systemImage: "trash", role: .destructive) { context.delete(garment) }
                         }
@@ -251,7 +251,7 @@ struct GarmentDetailView: View {
         .background(StudioBackground())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { garment.isFavorite.toggle() } label: {
+                Button { Personalizer.toggleFavorite(garment, in: context) } label: {
                     Image(systemName: garment.isFavorite ? "heart.fill" : "heart")
                 }
                 .sensoryFeedback(.impact(weight: .light), trigger: garment.isFavorite)
