@@ -61,6 +61,18 @@ final class ImportQueue {
         change(&items[i])
     }
 
+    /// Swaps in a re-cut photo from the editor, keeping anything the user typed.
+    func replace(_ id: UUID, with output: CutoutService.Output, cutout: UIImage?) {
+        update(id) { item in
+            item.output = output
+            item.cutout = cutout
+            item.colorHex = output.dominantHex
+            item.confidence = output.recognition.confidence
+            if !item.nameEdited { item.name = output.recognition.suggestedName }
+            if !item.categoryEdited { item.category = output.recognition.category }
+        }
+    }
+
     /// Keeps categories valid when the owner switches between a person and a pet.
     func adapt(to kind: WearerKind) {
         forPet = kind.isPet

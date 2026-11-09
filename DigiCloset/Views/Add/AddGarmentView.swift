@@ -20,6 +20,12 @@ struct AddGarmentView: View {
     @State private var manualName = ""
     @State private var manualCategory: GarmentCategory = .top
     @State private var manualColor = "D9D4CC"
+    @State private var editing: EditTarget?
+
+    private struct EditTarget: Identifiable {
+        let id: UUID
+        let source: CutoutService.Source
+    }
 
     private var owner: Wearer? { wearers.first { $0.id == ownerID } ?? wearers.first }
     private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
@@ -77,6 +83,11 @@ struct AddGarmentView: View {
                 CameraPicker { data in queue.add(data) }
                     .ignoresSafeArea()
             }
+            .fullScreenCover(item: $editing) { target in
+                CutoutEditorView(source: target.source, forPet: owner?.kind.isPet ?? false) { output in
+                    queue.replace(target.id, with: output, cutout: UIImage(data: output.cutout))
+                }
+            }
             .sensoryFeedback(.success, trigger: queue.readyCount)
             .interactiveDismissDisabled(!queue.items.isEmpty)
         }
@@ -107,12 +118,19 @@ struct AddGarmentView: View {
                 .fill(LinearGradient(colors: [Theme.card, Theme.studio], startPoint: .top, endPoint: .bottom))
             if let item = single {
                 if let cutout = item.cutout {
-                    Image(uiImage: cutout)
-                        .resizable()
-                        .scaledToFit()
-                        .padding(28)
-                        .shadow(color: .black.opacity(0.18), radius: 16, y: 12)
-                        .transition(.scale(scale: 0.85).combined(with: .opacity))
+                    HStack(spacing: 6) {
+                        if item.state == .ready, let owner {
+                            OnYouPreview(kind: owner.kind, fit: owner.fit,
+                                         layer: FigureLayer(id: item.id, category: item.category, colorHex: item.colorHex,
+                                                            photo: item.output?.thumbnail))
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                        }
+                        LiftReveal(image: cutout)
+                            .id(item.output?.cutout.count)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .padding(.top, 58).padding(.bottom, 56).padding(.horizontal, 18)
+                    .transition(.scale(scale: 0.85).combined(with: .opacity))
                 } else if let preview = item.preview {
                     Image(uiImage: preview)
                         .resizable()
@@ -135,9 +153,22 @@ struct AddGarmentView: View {
                 }
             }
         }
-        .frame(height: 340)
+        .frame(height: 360)
         .overlay(alignment: .bottom) {
             if let item = single { StatusBadge(item: item).padding(14) }
+        }
+        .overlay(alignment: .topTrailing) {
+            if let item = single, item.state == .ready, let source = item.output?.source {
+                Button { editing = EditTarget(id: item.id, source: source) } label: {
+                    Label("Clean up", systemImage: "wand.and.rays")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .foregroundStyle(Theme.ink)
+                .padding(14)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
         }
         .animation(.spring(duration: 0.6, bounce: 0.25), value: single?.cutout)
         .padding(.horizontal, 20)
@@ -250,7 +281,8 @@ struct AddGarmentView: View {
                 BatchCard(item: item, categories: owner?.kind.categories ?? GarmentCategory.humanCases,
                           onName: { value in queue.update(item.id) { $0.name = value; $0.nameEdited = true } },
                           onCategory: { value in queue.update(item.id) { $0.category = value; $0.categoryEdited = true } },
-                          onRemove: { withAnimation(.smooth) { queue.remove(item.id) } })
+                          onRemove: { withAnimation(.smooth) { queue.remove(item.id) } },
+                          onEdit: { if let source = item.output?.source { editing = EditTarget(id: item.id, source: source) } })
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
@@ -330,6 +362,7 @@ private struct BatchCard: View {
     var onName: (String) -> Void
     var onCategory: (GarmentCategory) -> Void
     var onRemove: () -> Void
+    var onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -355,6 +388,8 @@ private struct BatchCard: View {
                 }
             }
             .frame(height: 170)
+            .contentShape(Rectangle())
+            .onTapGesture { if item.state == .ready { onEdit() } }
             .overlay(alignment: .topTrailing) {
                 Button(action: onRemove) {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
@@ -430,6 +465,14 @@ struct CameraPicker: UIViewControllerRepresentable {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.delegate = context.coordinator
+        // A framing guide on top of the live camera, so photos start out clean.
+        let guide = UIHostingController(rootView: CameraGuide())
+        guide.view.backgroundColor = .clear
+        guide.view.isUserInteractionEnabled = false
+        guide.view.frame = UIScreen.main.bounds
+        guide.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        picker.cameraOverlayView = guide.view
+        context.coordinator.guide = guide
         return picker
     }
 
@@ -439,6 +482,7 @@ struct CameraPicker: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let parent: CameraPicker
+        var guide: UIViewController?
         init(_ parent: CameraPicker) { self.parent = parent }
 
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
@@ -449,5 +493,118 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// Corner brackets and a tip over the camera: lay it flat, fill the frame.
+private struct CameraGuide: View {
+    @State private var breathe = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width * 0.78
+            let height = min(width * 1.25, geo.size.height * 0.5)
+            VStack(spacing: 16) {
+                Label("Lay it flat on a plain surface", systemImage: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .environment(\.colorScheme, .dark)
+                CornerBrackets()
+                    .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    .frame(width: width, height: height)
+                    .scaleEffect(breathe ? 1.0 : 0.97)
+                    .shadow(color: .black.opacity(0.35), radius: 4)
+                Text("Fill the frame with one piece")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.5), radius: 3)
+            }
+            .frame(width: geo.size.width)
+            .position(x: geo.size.width / 2, y: geo.size.height * 0.43)
+        }
+        .onAppear { withAnimation(.easeInOut(duration: 1.4).repeatForever()) { breathe = true } }
+    }
+}
+
+private struct CornerBrackets: Shape {
+    func path(in rect: CGRect) -> Path {
+        let l = min(rect.width, rect.height) * 0.16
+        let r: CGFloat = 14
+        var p = Path()
+        // Top-left
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY + l))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        p.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.minX + l, y: rect.minY))
+        // Top-right
+        p.move(to: CGPoint(x: rect.maxX - l, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r), control: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + l))
+        // Bottom-right
+        p.move(to: CGPoint(x: rect.maxX, y: rect.maxY - l))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        p.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY), control: CGPoint(x: rect.maxX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX - l, y: rect.maxY))
+        // Bottom-left
+        p.move(to: CGPoint(x: rect.minX + l, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        p.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r), control: CGPoint(x: rect.minX, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - l))
+        return p
+    }
+}
+
+/// A cutout appearing the way iOS lifts a subject: a light sweep across the
+/// garment and a soft glow that fades as it settles.
+struct LiftReveal: View {
+    let image: UIImage
+    @State private var sweep: CGFloat = -1
+    @State private var glow = 1.0
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .overlay {
+                GeometryReader { geo in
+                    LinearGradient(colors: [.clear, .white.opacity(0.85), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geo.size.width * 0.5)
+                        .rotationEffect(.degrees(18))
+                        .offset(x: sweep * geo.size.width * 1.2 + geo.size.width * 0.25)
+                }
+                .mask(Image(uiImage: image).resizable().scaledToFit())
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false)
+            }
+            .shadow(color: .white.opacity(0.95 * glow), radius: 12)
+            .shadow(color: .black.opacity(0.18), radius: 16, y: 12)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.9).delay(0.1)) { sweep = 1 }
+                withAnimation(.easeOut(duration: 1.4).delay(0.4)) { glow = 0 }
+            }
+            .sensoryFeedback(.impact(weight: .medium), trigger: sweep)
+    }
+}
+
+/// The new piece already on your figure, so you see how it reads worn.
+private struct OnYouPreview: View {
+    let kind: WearerKind
+    let fit: BodyFit
+    let layer: FigureLayer
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: 0)
+            StandingFigure(kind: kind, layers: [layer], height: kind.isPet ? 110 : 190, fit: fit)
+                .frame(height: kind.isPet ? 120 : 196, alignment: .bottom)
+            Text(kind.isPet ? "On them" : "On you")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(1)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.muted)
+        }
+        .frame(width: kind.isPet ? 120 : 86)
     }
 }

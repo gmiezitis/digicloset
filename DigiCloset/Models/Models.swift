@@ -78,7 +78,7 @@ final class Garment {
     }
 
     var hasPhoto: Bool { thumbnailData != nil }
-    var layer: FigureLayer { FigureLayer(id: id, category: category, colorHex: colorHex) }
+    var layer: FigureLayer { FigureLayer(id: id, category: category, colorHex: colorHex, photo: thumbnailData) }
 }
 
 @Model
@@ -151,6 +151,19 @@ struct FigureLayer: Identifiable, Hashable, Sendable {
     let id: UUID
     let category: GarmentCategory
     let colorHex: String
+    /// The garment's cutout thumbnail, so figures can wear the real fabric.
+    var photo: Data? = nil
+
+    static func == (a: FigureLayer, b: FigureLayer) -> Bool {
+        a.id == b.id && a.category == b.category && a.colorHex == b.colorHex && a.photo?.count == b.photo?.count
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(category)
+        hasher.combine(colorHex)
+        hasher.combine(photo?.count)
+    }
 }
 
 extension Array where Element: Hashable {

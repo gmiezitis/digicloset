@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Where each kind of garment sits on each mannequin, in 0–1 coordinates of
 /// the cutout image. Measured from the mannequin artwork.
@@ -80,16 +81,10 @@ struct FigureView: View {
                         ForEach(layers.sorted { $0.category.layer < $1.category.layer }) { layer in
                             ForEach(Array(FigureZones.zones(for: layer.category, kind: kind).enumerated()), id: \.offset) { _, zone in
                                 let height = zone.height * geo.size.height
-                                let fade = min(0.5, 4 / max(height, 1))
-                                // Soft top/bottom edges so pieces blend like fabric seams.
-                                LinearGradient(stops: [
-                                    .init(color: Color(hex: layer.colorHex).opacity(0), location: 0),
-                                    .init(color: Color(hex: layer.colorHex), location: fade),
-                                    .init(color: Color(hex: layer.colorHex), location: 1 - fade),
-                                    .init(color: Color(hex: layer.colorHex).opacity(0), location: 1),
-                                ], startPoint: .top, endPoint: .bottom)
-                                .frame(width: zone.width * geo.size.width, height: height)
-                                .mask(SideFade(zone: zone, width: zone.width * geo.size.width))
+                                ZoneFill(layer: layer, figureWidth: geo.size.width)
+                                    .frame(width: zone.width * geo.size.width, height: height)
+                                    .mask(EdgeFade(height: height))
+                                    .mask(SideFade(zone: zone, width: zone.width * geo.size.width))
                                 .offset(x: zone.minX * geo.size.width, y: zone.minY * geo.size.height)
                             }
                         }
@@ -103,6 +98,18 @@ struct FigureView: View {
             }
             .compositingGroup()
             .overlay {
+                // Bags hang from the hand as the real photo.
+                if !kind.isPet, let bag = layers.last(where: { $0.category == .bag && $0.photo != nil }) {
+                    GeometryReader { geo in
+                        HeldPhoto(layer: bag)
+                            .frame(width: geo.size.height * 0.15, height: geo.size.height * 0.15)
+                            .position(x: geo.size.width * 0.93, y: geo.size.height * 0.63)
+                    }
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+            }
+            .overlay {
                 if showsPins {
                     GeometryReader { geo in
                         ForEach(layers) { layer in
@@ -115,6 +122,71 @@ struct FigureView: View {
                 }
             }
             .animation(.smooth(duration: 0.45), value: layers)
+    }
+}
+
+/// What fills one zone of the figure: the garment's real fabric when it has a
+/// photo (tiled at the right scale so prints read true), otherwise its colour.
+private struct ZoneFill: View {
+    let layer: FigureLayer
+    let figureWidth: CGFloat
+    @State private var fabric: ImagePipeline.Fabric?
+
+    private var key: String { "\(layer.id.uuidString)-F\(layer.photo?.count ?? 0)" }
+
+    var body: some View {
+        ZStack {
+            Color(hex: layer.colorHex)
+            if let fabric {
+                // The tile is two swatches wide; a swatch covers `ratio` of the garment.
+                let points = max(6, figureWidth * fabric.ratio * 2)
+                Image(uiImage: UIImage(cgImage: fabric.tile, scale: CGFloat(fabric.tile.width) / points, orientation: .up))
+                    .resizable(resizingMode: .tile)
+                    .transition(.opacity)
+            }
+        }
+        .task(id: key) {
+            guard let photo = layer.photo else { fabric = nil; return }
+            if let hit = ImagePipeline.shared.cachedFabric(key) { fabric = hit; return }
+            let loaded = await ImagePipeline.shared.fabric(for: key, data: photo)
+            withAnimation(.smooth(duration: 0.35)) { fabric = loaded }
+        }
+    }
+}
+
+/// Soft top and bottom edges so pieces blend like fabric seams.
+private struct EdgeFade: View {
+    let height: CGFloat
+
+    var body: some View {
+        let fade = min(0.5, 4 / max(height, 1))
+        LinearGradient(stops: [
+            .init(color: .clear, location: 0),
+            .init(color: .black, location: fade),
+            .init(color: .black, location: 1 - fade),
+            .init(color: .clear, location: 1),
+        ], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// A real garment photo carried by the figure (bags).
+private struct HeldPhoto: View {
+    let layer: FigureLayer
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .shadow(color: .black.opacity(0.2), radius: 3, y: 2)
+            }
+        }
+        .task(id: layer.id) {
+            let key = "\(layer.id.uuidString)-S"
+            if let hit = ImagePipeline.shared.cached(key) { image = hit; return }
+            guard let photo = layer.photo else { return }
+            image = await ImagePipeline.shared.image(for: key, data: photo, maxPixel: 480)
+        }
     }
 }
 
