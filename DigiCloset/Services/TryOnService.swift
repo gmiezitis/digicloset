@@ -72,14 +72,31 @@ enum TryOnService {
 
     private static var personURL: URL { URL.documentsDirectory.appending(path: "tryon-person.jpg") }
 
+    private static let mannequinData: Data? =
+        Bundle.main.url(forResource: "tryon-mannequin", withExtension: "jpg").flatMap { try? Data(contentsOf: $0) }
+    private static let mannequinHash: String? = mannequinData.map(hash)
+    nonisolated(unsafe) private static var mannequinImage: UIImage?
+
     static func baseData(_ base: Base) -> Data? {
         switch base {
-        case .mannequin: Bundle.main.url(forResource: "tryon-mannequin", withExtension: "jpg").flatMap { try? Data(contentsOf: $0) }
+        case .mannequin: mannequinData
         case .me: try? Data(contentsOf: personURL)
         }
     }
 
-    static func image(for base: Base) -> UIImage? { baseData(base).flatMap(UIImage.init(data:)) }
+    private static func baseHash(_ base: Base, _ data: Data) -> String {
+        base == .mannequin ? (mannequinHash ?? hash(data)) : hash(data)
+    }
+
+    static func image(for base: Base) -> UIImage? {
+        if base == .mannequin {
+            if let mannequinImage { return mannequinImage }
+            let image = mannequinData.flatMap(UIImage.init(data:))?.preparingForDisplay()
+            mannequinImage = image
+            return image
+        }
+        return baseData(base).flatMap(UIImage.init(data:))
+    }
 
     static func savePerson(_ data: Data) throws {
         guard let image = UIImage(data: data), let jpeg = resized(image, maxSide: 1024)?.jpegData(compressionQuality: 0.85)
@@ -102,10 +119,40 @@ enum TryOnService {
         return Piece(jpeg: jpeg, category: falCategory, key: hash(jpeg), order: order)
     }
 
-    static func cached(_ pieces: [Piece], on base: Base) -> UIImage? {
-        guard let data = baseData(base), !pieces.isEmpty else { return nil }
-        let key = chainKey(hash(data), pieces.sorted { $0.order < $1.order })
-        return read(key).flatMap(UIImage.init(data:))
+    /// A saved result for exactly these pieces, read and decoded off the main thread.
+    static func cached(_ pieces: [Piece], on base: Base) async -> UIImage? {
+        guard !pieces.isEmpty else { return nil }
+        return await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let data = baseData(base) else { return nil }
+            let key = chainKey(baseHash(base, data), pieces.sorted { $0.order < $1.order })
+            return read(key).flatMap(UIImage.init(data:))?.preparingForDisplay()
+        }.value
+    }
+
+    // MARK: Prepared pieces
+
+    /// Preparing a piece (white background, JPEG, hash) takes tens of milliseconds,
+    /// so each one is made once per photo and reused by every card that shows it.
+    nonisolated(unsafe) private static var preparedPieces: [String: Piece] = [:]
+    private static let piecesLock = NSLock()
+
+    @MainActor
+    static func pieces(for garments: [Garment]) async -> [Piece] {
+        var found: [Piece] = []
+        var missing: [(String, Source)] = []
+        for garment in garments where supports(garment.category) {
+            // The thumbnail is stored inline, so its size is cheap to read; the
+            // full photo lives in a separate file and is only read when needed.
+            let id = "\(garment.id.uuidString)-\(garment.thumbnailData?.count ?? 0)-\(garment.categoryRaw)"
+            let hit = piecesLock.withLock { preparedPieces[id] }
+            if let hit { found.append(hit) } else if let source = source(for: garment) { missing.append((id, source)) }
+        }
+        guard !missing.isEmpty else { return found }
+        let made = await Task.detached(priority: .userInitiated) {
+            missing.compactMap { id, source in piece(source).map { (id, $0) } }
+        }.value
+        piecesLock.withLock { for (id, piece) in made { preparedPieces[id] = piece } }
+        return found + made.map(\.1)
     }
 
     /// Dresses the base in each piece in turn (bottoms, then dresses, then tops, then coats).
@@ -118,7 +165,7 @@ enum TryOnService {
         guard !pieces.isEmpty else { throw Failure.unsupported }
         guard var person = baseData(base) else { throw Failure.badImage }
         let ordered = pieces.sorted { $0.order < $1.order }
-        var key = hash(person)
+        var key = baseHash(base, person)
         for (index, piece) in ordered.enumerated() {
             progress?(index + 1, ordered.count)
             let stepKey = chainKey(key, [piece])
@@ -131,7 +178,7 @@ enum TryOnService {
             key = stepKey
             if index < ordered.count - 1, let image = UIImage(data: person) { partial?(image) }
         }
-        guard let image = UIImage(data: person) else { throw Failure.badImage }
+        guard let image = UIImage(data: person)?.preparingForDisplay() else { throw Failure.badImage }
         return image
     }
 
@@ -165,7 +212,7 @@ enum TryOnService {
     }
 
     private static func compose(_ baseData: Data, _ singles: [Data]) -> UIImage? {
-        if singles.count == 1 { return UIImage(data: singles[0]) }
+        if singles.count == 1 { return UIImage(data: singles[0])?.preparingForDisplay() }
         guard let base = UIImage(data: baseData)?.cgImage else { return nil }
         let layers = singles.compactMap { UIImage(data: $0)?.cgImage }
         guard layers.count == singles.count, let out = TryOnCompositor.compose(base: base, layers: layers) else { return nil }
@@ -176,7 +223,7 @@ enum TryOnService {
     static func quickCached(_ pieces: [Piece], on base: Base) async -> UIImage? {
         guard canCombine(pieces), let baseData = baseData(base) else { return nil }
         let ordered = pieces.sorted { $0.order < $1.order }
-        let baseKey = hash(baseData)
+        let baseKey = baseHash(base, baseData)
         let comboKey = "q" + chainKey(baseKey, ordered) as NSString
         if let hit = combos.object(forKey: comboKey) { return hit }
         let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
@@ -196,7 +243,7 @@ enum TryOnService {
     static func quickDress(_ pieces: [Piece], on base: Base) async throws -> UIImage {
         guard canCombine(pieces), let baseData = baseData(base) else { throw Failure.unsupported }
         let ordered = pieces.sorted { $0.order < $1.order }
-        let baseKey = hash(baseData)
+        let baseKey = baseHash(base, baseData)
         // At most two pieces here; both are fetched at the same time.
         var singles: [Data]
         if ordered.count == 2 {

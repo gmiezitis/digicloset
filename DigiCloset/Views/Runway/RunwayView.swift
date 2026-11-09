@@ -226,7 +226,6 @@ struct Carousel<Item: Identifiable, Card: View>: View where Item.ID == UUID {
                                     .scaleEffect(1 - abs(phase.value) * 0.2)
                                     .offset(y: abs(phase.value) * 18)
                                     .opacity(1 - abs(phase.value) * 0.45)
-                                    .blur(radius: abs(phase.value) * 0.6)
                             }
                     }
                 }

@@ -642,7 +642,7 @@ private struct MannequinPreview: View {
     @State private var failed = false
     @State private var expanded = false
     @State private var shimmer = false
-    private let base = TryOnService.image(for: .mannequin)
+    private var base: UIImage? { TryOnService.image(for: .mannequin) }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -681,7 +681,7 @@ private struct MannequinPreview: View {
             let data = cutout, category = category
             guard let piece = await Task.detached(priority: .userInitiated, operation: { TryOnService.piece(data, category: category) }).value
             else { failed = true; return }
-            if let hit = TryOnService.cached([piece], on: .mannequin) { result = hit; return }
+            if let hit = await TryOnService.cached([piece], on: .mannequin) { result = hit; return }
             do { result = try await TryOnService.dress([piece], on: .mannequin) } catch { failed = true }
         }
         .fullScreenCover(isPresented: $expanded) {

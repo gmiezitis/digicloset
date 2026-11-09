@@ -23,7 +23,8 @@ struct PhotoMannequin: View {
     private var wearable: [Garment] { garments.filter { TryOnService.supports($0.category) } }
     private var extras: [Garment] { garments.filter { !TryOnService.supports($0.category) } }
     private var key: String {
-        wearable.map { "\($0.id.uuidString)-\($0.imageData?.count ?? $0.thumbnailData?.count ?? 0)" }.sorted().joined(separator: ",")
+        // Thumbnail size only: reading the full photo here would hit the disk on every redraw.
+        wearable.map { "\($0.id.uuidString)-\($0.thumbnailData?.count ?? 0)" }.sorted().joined(separator: ",")
     }
     private var width: CGFloat { height * 2 / 3 }
     private static let bare = TryOnService.image(for: .mannequin)
@@ -92,18 +93,23 @@ struct PhotoMannequin: View {
         .frame(width: width, height: height)
         .animation(.easeInOut(duration: 0.6), value: dressed)
         .animation(.easeInOut(duration: 0.3), value: working)
-        .onAppear {
-            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { shimmer = true }
+        // The shimmer only runs while dressing, so idle cards cost nothing to draw.
+        .onChange(of: working) { _, isWorking in
+            if isWorking {
+                shimmer = false
+                withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { shimmer = true }
+            } else {
+                withAnimation(.linear(duration: 0)) { shimmer = false }
+            }
         }
         .task(id: "\(key)|\(autoDress)") { await load() }
     }
 
     private func load() async {
-        let sources = wearable.compactMap { TryOnService.source(for: $0) }
-        guard !sources.isEmpty else { dressed = nil; return }
-        let pieces = await Task.detached(priority: .userInitiated) { sources.compactMap { TryOnService.piece($0) } }.value
+        let pieces = await TryOnService.pieces(for: wearable)
+        guard !pieces.isEmpty, !Task.isCancelled else { if pieces.isEmpty { dressed = nil }; return }
         // 1. The full AI dressing, if this exact outfit was made before.
-        if let exact = TryOnService.cached(pieces, on: .mannequin) { dressed = exact; return }
+        if let exact = await TryOnService.cached(pieces, on: .mannequin) { dressed = exact; return }
         // 2. Pieces seen before combine on the phone, instantly.
         let combinable = TryOnService.canCombine(pieces)
         if combinable, let quick = await TryOnService.quickCached(pieces, on: .mannequin) {

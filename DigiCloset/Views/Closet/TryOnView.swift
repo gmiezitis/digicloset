@@ -52,8 +52,7 @@ struct TryOnView: View {
             }
         }
         .task {
-            let sources = garments.compactMap { TryOnService.source(for: $0) }
-            pieces = await Task.detached(priority: .userInitiated) { sources.compactMap { TryOnService.piece($0) } }.value
+            pieces = await TryOnService.pieces(for: garments)
             reload(autoStart: true)
         }
         .onChange(of: baseRaw) { _, _ in error = nil; reload(autoStart: true) }
@@ -126,9 +125,12 @@ struct TryOnView: View {
 
     private func reload(autoStart: Bool) {
         person = TryOnService.image(for: base)
-        result = TryOnService.cached(pieces, on: base)
-        if autoStart, result == nil, person != nil, base == .mannequin, !pieces.isEmpty {
-            Task { await run() }
+        let wanted = base
+        Task {
+            let hit = await TryOnService.cached(pieces, on: wanted)
+            guard wanted == base else { return }
+            result = hit
+            if autoStart, hit == nil, person != nil, wanted == .mannequin, !pieces.isEmpty { await run() }
         }
     }
 
