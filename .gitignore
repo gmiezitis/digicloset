@@ -4,3 +4,9 @@ xcuserdata/
 *.xcuserstate
 .DS_Store
 node_modules/
+
+# API keys
+.env
+.dev.vars
+Tools/tryon-test/out/
+DigiCloset/Secrets.plist

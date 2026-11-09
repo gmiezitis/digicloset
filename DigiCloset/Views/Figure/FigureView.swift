@@ -35,11 +35,11 @@ enum FigureZones {
         switch c {
         case .top: [CGRect(x: 0, y: 0.165, width: 1, height: 0.335)]
         case .outerwear: [CGRect(x: 0, y: 0.158, width: 1, height: 0.43)]
-        case .dress: [CGRect(x: 0, y: 0.165, width: 1, height: 0.32), CGRect(x: 0.14, y: 0.46, width: 0.72, height: 0.27)]
+        case .dress: [CGRect(x: 0.19, y: 0.19, width: 0.6, height: 0.3)] // sleeveless bodice; the skirt is a drape
         case .bottom: [CGRect(x: 0.14, y: 0.44, width: 0.72, height: 0.495)]
-        case .skirt: [CGRect(x: 0.14, y: 0.44, width: 0.72, height: 0.25)]
+        case .skirt: []
         case .shoes: [CGRect(x: 0, y: 0.935, width: 1, height: 0.065)]
-        case .hat: [CGRect(x: 0, y: 0, width: 1, height: 0.062)]
+        case .hat: []
         default: []
         }
     }
@@ -98,6 +98,19 @@ struct FigureView: View {
             }
             .compositingGroup()
             .overlay {
+                // Skirts and hat brims stand away from the body, so they're drawn over it.
+                if !kind.isPet {
+                    GeometryReader { geo in
+                        let coatHem: CGFloat? = layers.contains { $0.category == .outerwear } ? 0.588 : nil
+                        ForEach(layers.filter { FigureDrape.hangs($0.category) }.sorted { $0.category.layer < $1.category.layer }) { layer in
+                            DrapeView(layer: layer, shape: FigureDrape(category: layer.category, kind: kind, startY: coatHem))
+                                .frame(width: geo.size.width, height: geo.size.height)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+            .overlay {
                 // Bags hang from the hand as the real photo.
                 if !kind.isPet, let bag = layers.last(where: { $0.category == .bag && $0.photo != nil }) {
                     GeometryReader { geo in
@@ -125,6 +138,104 @@ struct FigureView: View {
     }
 }
 
+/// The outline of a garment that hangs away from the body, fitted to the
+/// mannequin artwork (measured from it): an A-line skirt from the waist, a
+/// dress skirt, or a hat's crown and brim.
+struct FigureDrape: Shape {
+    let category: GarmentCategory
+    let kind: WearerKind
+    /// Where a coat ends; skirts start below it so the coat stays on top.
+    var startY: CGFloat?
+
+    static func hangs(_ category: GarmentCategory) -> Bool { [.skirt, .dress, .hat].contains(category) }
+
+    func path(in rect: CGRect) -> Path {
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height) }
+        let child = kind == .child
+        var path = Path()
+        switch category {
+        case .skirt, .dress:
+            let dress = category == .dress
+            let top: CGFloat = child ? (dress ? 0.53 : 0.52) : (dress ? 0.46 : 0.43)
+            let hem: CGFloat = child ? (dress ? 0.8 : 0.76) : (dress ? 0.75 : 0.71)
+            let (l, r): (CGFloat, CGFloat) = child ? (0.22, 0.79) : (0.215, 0.778)
+            let (hl, hr): (CGFloat, CGFloat) = dress ? (0.0, 0.99) : (0.03, 0.96)
+            let mid = top + (hem - top) * 0.38
+            path.move(to: p(l, top))
+            path.addQuadCurve(to: p(r, top), control: p(0.5, top + 0.012))
+            path.addQuadCurve(to: p(hr, hem), control: p(r + 0.08, mid))
+            path.addQuadCurve(to: p(hl, hem), control: p(0.5, hem + 0.02))
+            path.addQuadCurve(to: p(l, top), control: p(l - 0.085, mid))
+            path.closeSubpath()
+            if let startY, startY > top {
+                path = path.intersection(Path(CGRect(x: rect.minX, y: rect.minY + startY * rect.height,
+                                                     width: rect.width, height: rect.height)))
+            }
+        case .hat:
+            let (cl, cr): (CGFloat, CGFloat) = switch kind {
+            case .man: (0.37, 0.63)
+            case .child: (0.29, 0.71)
+            default: (0.33, 0.65)
+            }
+            let spread = (cr - cl) * 0.62
+            path.addRoundedRect(in: CGRect(x: rect.minX + cl * rect.width, y: rect.minY + 0.004 * rect.height,
+                                           width: (cr - cl) * rect.width, height: 0.07 * rect.height),
+                                cornerSize: CGSize(width: rect.width * 0.06, height: rect.width * 0.06))
+            path = path.union(Path(ellipseIn: CGRect(x: rect.minX + (cl - spread) * rect.width, y: rect.minY + 0.056 * rect.height,
+                                                     width: (cr - cl + 2 * spread) * rect.width, height: 0.034 * rect.height)))
+        default:
+            break
+        }
+        return path
+    }
+}
+
+/// A hanging garment: the real fabric (or colour), shaded so it reads as cloth
+/// with volume and soft folds, and a light shadow onto the figure.
+private struct DrapeView: View {
+    let layer: FigureLayer
+    let shape: FigureDrape
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ZoneFill(layer: layer, figureWidth: geo.size.width)
+                // Rounded volume: darker where the cloth turns away at the sides.
+                LinearGradient(stops: [
+                    .init(color: .black.opacity(0.28), location: 0.12),
+                    .init(color: .clear, location: 0.34),
+                    .init(color: .white.opacity(0.1), location: 0.46),
+                    .init(color: .clear, location: 0.6),
+                    .init(color: .black.opacity(0.3), location: 0.88),
+                ], startPoint: .leading, endPoint: .trailing)
+                if shape.category != .hat {
+                    // Soft folds falling from the waist.
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0.2), .init(color: .black.opacity(0.12), location: 0.3),
+                        .init(color: .clear, location: 0.4), .init(color: .black.opacity(0.1), location: 0.52),
+                        .init(color: .clear, location: 0.62), .init(color: .black.opacity(0.12), location: 0.72),
+                        .init(color: .clear, location: 0.82),
+                    ], startPoint: .leading, endPoint: .trailing)
+                    .blendMode(.multiply)
+                    // Shadow under the waistband, light catching the hem.
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.22), location: shape.category == .dress ? 0.46 : 0.43),
+                        .init(color: .clear, location: shape.category == .dress ? 0.5 : 0.47),
+                    ], startPoint: .top, endPoint: .bottom)
+                } else {
+                    // Ribbon band at the base of the crown.
+                    Rectangle().fill(.black.opacity(0.32))
+                        .frame(height: geo.size.height * 0.014)
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.062)
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.stroke(.black.opacity(0.12), lineWidth: 0.6))
+            .shadow(color: .black.opacity(0.2), radius: 3, y: 2)
+        }
+    }
+}
+
 /// What fills one zone of the figure: the garment's real fabric when it has a
 /// photo (tiled at the right scale so prints read true), otherwise its colour.
 private struct ZoneFill: View {
@@ -132,7 +243,7 @@ private struct ZoneFill: View {
     let figureWidth: CGFloat
     @State private var fabric: ImagePipeline.Fabric?
 
-    private var key: String { "\(layer.id.uuidString)-F\(layer.photo?.count ?? 0)" }
+    private var key: String { "\(layer.id.uuidString)-F\(layer.photo?.count ?? 0)-\(layer.colorHex)" }
 
     var body: some View {
         ZStack {
@@ -148,7 +259,7 @@ private struct ZoneFill: View {
         .task(id: key) {
             guard let photo = layer.photo else { fabric = nil; return }
             if let hit = ImagePipeline.shared.cachedFabric(key) { fabric = hit; return }
-            let loaded = await ImagePipeline.shared.fabric(for: key, data: photo)
+            let loaded = await ImagePipeline.shared.fabric(for: key, data: photo, colorHex: layer.colorHex)
             withAnimation(.smooth(duration: 0.35)) { fabric = loaded }
         }
     }

@@ -44,16 +44,16 @@ final class ImagePipeline: @unchecked Sendable {
 
     func cachedFabric(_ key: String) -> Fabric? { fabrics.object(forKey: key as NSString) }
 
-    func fabric(for key: String, data: Data) async -> Fabric? {
+    func fabric(for key: String, data: Data, colorHex: String) async -> Fabric? {
         if let hit = cachedFabric(key) { return hit }
-        let fabric = await Task.detached(priority: .userInitiated) { Self.makeFabric(data) }.value
+        let fabric = await Task.detached(priority: .userInitiated) { Self.makeFabric(data, colorHex: colorHex) }.value
         if let fabric { fabrics.setObject(fabric, forKey: key as NSString) }
         return fabric
     }
 
     /// Finds the largest fully-opaque square near the garment's centre, then
     /// mirrors it 2×2 so it tiles without visible seams.
-    private static func makeFabric(_ data: Data) -> Fabric? {
+    private static func makeFabric(_ data: Data, colorHex: String) -> Fabric? {
         guard let image = decode(data, maxPixel: 320)?.cgImage else { return nil }
         let w = image.width, h = image.height
         var px = [UInt8](repeating: 0, count: w * h * 4)
@@ -87,19 +87,53 @@ final class ImagePipeline: @unchecked Sendable {
             return true
         }
 
-        var side = Int(Double(min(bw, bh)) * 0.55)
+        // How busy a square is (buttons, seams, logos): average jump in brightness
+        // between neighbouring samples. Plain fabric scores low.
+        func luma(_ x: Int, _ y: Int) -> Int {
+            let i = (y * w + x) * 4
+            return (Int(px[i]) * 3 + Int(px[i + 1]) * 6 + Int(px[i + 2])) / 10
+        }
+        // The garment's own colour: a swatch far from it is probably a shadow,
+        // a shoe's inside or a print, not the main fabric.
+        var hexValue: UInt64 = 0
+        Scanner(string: colorHex).scanHexInt64(&hexValue)
+        let targetLuma = (Int((hexValue >> 16) & 255) * 3 + Int((hexValue >> 8) & 255) * 6 + Int(hexValue & 255)) / 10
+        func colourMiss(_ x0: Int, _ y0: Int, _ side: Int) -> Int {
+            var sum = 0
+            for j in 0..<6 { for i in 0..<6 { sum += luma(x0 + side * i / 6, y0 + side * j / 6) } }
+            return abs(sum / 36 - targetLuma)
+        }
+        func busyness(_ x0: Int, _ y0: Int, _ side: Int) -> Int {
+            let steps = 14, step = max(1, side / steps)
+            var total = 0
+            for j in 0..<steps {
+                for i in 0..<steps {
+                    let x = x0 + i * step, y = y0 + j * step
+                    total += abs(luma(x, y) - luma(x + step / 2, y)) + abs(luma(x, y) - luma(x, y + step / 2))
+                }
+            }
+            return total
+        }
+
+        // Try several sizes and spots near the middle; keep the plainest, leaning
+        // towards bigger squares so the swatch carries more of the weave.
+        let largest = Int(Double(min(bw, bh)) * 0.45)
         let smallest = max(12, Int(Double(min(bw, bh)) * 0.1))
-        var found: (Int, Int, Int)?
-        search: while side >= smallest {
-            for oy in [0, -1, 1, -2, 2] {
-                for ox in [0, -1, 1, -2, 2] {
-                    let x0 = cx - side / 2 + ox * bw / 10
-                    let y0 = cy - side / 2 + oy * bh / 10
-                    if opaque(x0, y0, side) { found = (x0, y0, side); break search }
+        var side = largest
+        var best: (Int, Int, Int, Int)?
+        while side >= smallest {
+            for oy in -3...3 {
+                for ox in -3...3 {
+                    let x0 = cx - side / 2 + ox * bw / 9
+                    let y0 = cy - side / 2 + oy * bh / 9
+                    guard opaque(x0, y0, side) else { continue }
+                    let score = busyness(x0, y0, side) + colourMiss(x0, y0, side) * 25 + (largest - side) * 2 + (abs(ox) + abs(oy)) * 4
+                    if best == nil || score < best!.3 { best = (x0, y0, side, score) }
                 }
             }
             side = side * 85 / 100
         }
+        let found = best.map { ($0.0, $0.1, $0.2) }
         guard let (x0, y0, s) = found, let crop = image.cropping(to: CGRect(x: x0, y: y0, width: s, height: s)) else { return nil }
 
         let out = min(128, s)

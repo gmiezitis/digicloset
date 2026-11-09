@@ -198,6 +198,7 @@ struct GarmentDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @State private var tryingOn = false
 
     var body: some View {
         ScrollView {
@@ -208,6 +209,17 @@ struct GarmentDetailView: View {
                     .frame(height: 340)
                     .background(LinearGradient(colors: [Theme.card, Theme.studio], startPoint: .top, endPoint: .bottom),
                                 in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+
+                if TryOnService.category(for: garment.category) != nil {
+                    Button { tryingOn = true } label: {
+                        Label("Try it on", systemImage: "sparkles")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Theme.ink, in: Capsule())
+                            .foregroundStyle(.white)
+                    }
+                }
 
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("Brand", text: $garment.brand).font(Theme.eyebrow).textInputAutocapitalization(.characters)
@@ -257,6 +269,7 @@ struct GarmentDetailView: View {
                 .sensoryFeedback(.impact(weight: .light), trigger: garment.isFavorite)
             }
         }
+        .fullScreenCover(isPresented: $tryingOn) { TryOnView(garment: garment) }
         .confirmationDialog("Delete this piece?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 context.delete(garment)

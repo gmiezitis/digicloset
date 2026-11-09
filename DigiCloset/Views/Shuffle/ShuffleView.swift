@@ -20,6 +20,7 @@ struct ShuffleView: View {
     @State private var loves = 0
     @State private var toast: String?
     @State private var diceAngle = 0.0
+    @State private var addingCompanion = false
 
     private var profile: UserProfile? { profiles.first }
     private var owner: Wearer? { wearers.first { $0.id == ownerID } ?? wearers.first(where: \.isSelf) ?? wearers.first }
@@ -73,7 +74,26 @@ struct ShuffleView: View {
         .padding(.top, 12)
     }
 
+    @ViewBuilder
     private var pickers: some View {
+        if wearers.count > 1 {
+            familyPickers
+        } else {
+            Button { addingCompanion = true } label: {
+                Label("Match with a friend or pet", systemImage: "person.badge.plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Theme.card, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.hairline))
+            }
+            .foregroundStyle(Theme.ink)
+            .buttonStyle(PressableStyle())
+            .padding(.horizontal, 20)
+            .sheet(isPresented: $addingCompanion) { WearerEditor() }
+        }
+    }
+
+    private var familyPickers: some View {
         VStack(alignment: .leading, spacing: 10) {
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {

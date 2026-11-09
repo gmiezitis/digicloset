@@ -436,7 +436,10 @@ struct OnboardingView: View {
         profile.usesMetric = usesMetric
         Personalizer.seed(profile)
 
-        if existingWearers.isEmpty && withExamples { SampleData.seedIfNeeded(context) }
+        if existingWearers.isEmpty && withExamples {
+            // Example friends and pets only for people who came to match; everyone else starts alone.
+            SampleData.seedIfNeeded(context, includeFamily: goals.contains(.matchFriends) || goals.contains(.dressPets))
+        }
 
         let me = Personalizer.me(in: context) ?? {
             let wearer = Wearer(name: cleanName, kind: figure, accentHex: "C9A27E", sortIndex: 0)
@@ -514,7 +517,7 @@ private struct StepLayout<Content: View>: View {
     }
 }
 
-/// Opening screen: a woman and her dog change outfits in step.
+/// Opening screen: you, changing outfits. Friends and pets join later, once added.
 private struct WelcomeStep: View {
     @State private var index = 0
 
@@ -535,11 +538,8 @@ private struct WelcomeStep: View {
         let outfit = Self.outfits[index]
         VStack(spacing: 26) {
             Spacer(minLength: 20)
-            HStack(alignment: .bottom, spacing: -14) {
-                StandingFigure(kind: .woman, layers: layers(outfit.human, salt: 1), height: 400, solo: false)
-                StandingFigure(kind: .dog, layers: layers(outfit.dog, salt: 2), height: 400, solo: false)
-            }
-            .frame(height: 420, alignment: .bottom)
+            StandingFigure(kind: .woman, layers: layers(outfit.human, salt: 1), height: 400, solo: false)
+                .frame(height: 420, alignment: .bottom)
             VStack(spacing: 12) {
                 Eyebrow("DigiCloset")
                 Text("Your closet,\nbeautifully styled.")

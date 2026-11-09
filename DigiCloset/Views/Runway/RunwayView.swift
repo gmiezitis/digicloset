@@ -109,7 +109,15 @@ struct RunwayView: View {
         .padding(.top, 12)
     }
 
+    /// True once there's someone besides you (or a set already exists).
+    private var hasFamily: Bool { wearers.count > 1 || !sets.isEmpty }
+
+    @ViewBuilder
     private var controls: some View {
+        if hasFamily { familyControls }
+    }
+
+    private var familyControls: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 ForEach(Mode.allCases, id: \.self) { m in
@@ -142,7 +150,7 @@ struct RunwayView: View {
     @ViewBuilder
     private var looksSection: some View {
         if visibleLooks.isEmpty {
-            EmptyRunway { showBuilder = true }
+            EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman) { showBuilder = true }
         } else {
             Carousel(items: visibleLooks, focused: $focusedLook, widthRatio: 0.56) { look, isFocused in
                 LookCard(look: look, isFocused: isFocused)
@@ -162,7 +170,7 @@ struct RunwayView: View {
     @ViewBuilder
     private var setsSection: some View {
         if visibleSets.isEmpty {
-            EmptyRunway(message: "Match an outfit with a friend or your pet to create a set.") { showBuilder = true }
+            EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman, message: "Match an outfit with a friend or your pet to create a set.") { showBuilder = true }
         } else {
             Carousel(items: visibleSets, focused: $focusedSet, widthRatio: 0.78) { set, isFocused in
                 SetCard(set: set, isFocused: isFocused)
@@ -388,12 +396,13 @@ struct HarmonyBadge: View {
 }
 
 struct EmptyRunway: View {
+    var kind: WearerKind = .woman
     var message = "Style your first look and it will walk the runway here."
     var action: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
-            StandingFigure(kind: .woman, layers: [], height: 260)
+            StandingFigure(kind: kind, layers: [], height: 260)
                 .opacity(0.7)
             Text(message)
                 .font(.system(size: 15))

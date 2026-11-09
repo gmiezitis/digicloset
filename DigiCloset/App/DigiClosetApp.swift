@@ -55,6 +55,7 @@ enum AppTab: Hashable {
 }
 
 struct MainTabs: View {
+    @Environment(\.modelContext) private var context
     @State private var tab: AppTab
 
     init(start: AppTab) { _tab = State(initialValue: start) }
@@ -67,5 +68,7 @@ struct MainTabs: View {
             Tab("Planner", systemImage: "calendar", value: AppTab.planner) { PlannerView() }
         }
         .tint(Theme.ink)
+        // Pieces without a photo (examples, hand-added) get a studio shot.
+        .task { await GarmentStudio.fillMissing(in: context) }
     }
 }

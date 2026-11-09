@@ -1,19 +1,17 @@
 import Foundation
 import SwiftData
 
-/// A starter closet so the app looks alive on first launch: you, a friend,
-/// a dog and a cat, with looks and matching sets already styled.
+/// A starter closet so the app looks alive on first launch: your pieces and
+/// looks, plus (only for people who want to match) a friend, a dog and a cat
+/// with matching sets already styled.
 @MainActor
 enum SampleData {
-    static func seedIfNeeded(_ context: ModelContext) {
+    static func seedIfNeeded(_ context: ModelContext, includeFamily: Bool = true) {
         guard (try? context.fetchCount(FetchDescriptor<Wearer>())) == 0 else { return }
 
         let me = Wearer(name: "Me", kind: .woman, accentHex: "C9A27E", sortIndex: 0)
         me.isSelf = true
-        let sofia = Wearer(name: "Sofia", kind: .woman, accentHex: "D8A7A0", sortIndex: 1)
-        let biscuit = Wearer(name: "Biscuit", kind: .dog, accentHex: "B8946A", sortIndex: 2)
-        let luna = Wearer(name: "Luna", kind: .cat, accentHex: "9AA7B8", sortIndex: 3)
-        [me, sofia, biscuit, luna].forEach(context.insert)
+        context.insert(me)
 
         var stamp = Date.now
         func piece(_ owner: Wearer, _ name: String, _ brand: String, _ category: GarmentCategory, _ hex: String) -> Garment {
@@ -38,6 +36,42 @@ enum SampleData {
         _ = piece(me, "Ivory midi skirt", "Mango", .skirt, "EDE6D6")
         _ = piece(me, "Woven tote", "Loewe", .bag, "C9A27E")
 
+        func look(_ owner: Wearer, _ name: String, _ items: [Garment]) -> Look {
+            let look = Look(name: name, owner: owner)
+            stamp = stamp.addingTimeInterval(-60)
+            look.createdAt = stamp
+            context.insert(look)
+            look.wearer = owner
+            look.garments = items
+            return look
+        }
+
+        let sundayLinen = look(me, "Sunday Linen", [linenShirt, camelTrousers, sneakers, strawHat])
+        let roseHour = look(me, "Rose Hour", [roseDress, sneakers])
+        let cityNoir = look(me, "City Noir", [blackCoat, sageKnit, blackJeans, loafers])
+
+        let calendar = Calendar.current
+        let today = Date.now
+        func plan(_ offset: Int, look: Look? = nil, set: MatchSet? = nil) {
+            let entry = PlanEntry(day: calendar.date(byAdding: .day, value: offset, to: today) ?? today)
+            context.insert(entry)
+            entry.look = look
+            entry.matchSet = set
+        }
+        plan(5, look: cityNoir)
+
+        guard includeFamily else {
+            plan(0, look: sundayLinen)
+            plan(2, look: roseHour)
+            try? context.save()
+            return
+        }
+
+        let sofia = Wearer(name: "Sofia", kind: .woman, accentHex: "D8A7A0", sortIndex: 1)
+        let biscuit = Wearer(name: "Biscuit", kind: .dog, accentHex: "B8946A", sortIndex: 2)
+        let luna = Wearer(name: "Luna", kind: .cat, accentHex: "9AA7B8", sortIndex: 3)
+        [sofia, biscuit, luna].forEach(context.insert)
+
         // Sofia
         let blushBlouse = piece(sofia, "Blush blouse", "Sézane", .top, "E8C3BC")
         let roseSkirt = piece(sofia, "Rose midi skirt", "Rouje", .skirt, "C98C8A")
@@ -56,22 +90,9 @@ enum SampleData {
         _ = piece(luna, "Velvet collar", "Wild One", .collar, "2A2C30")
         let sageSweater = piece(luna, "Sage sweater", "Little Knits", .sweater, "A9B79A")
 
-        func look(_ owner: Wearer, _ name: String, _ items: [Garment]) -> Look {
-            let look = Look(name: name, owner: owner)
-            stamp = stamp.addingTimeInterval(-60)
-            look.createdAt = stamp
-            context.insert(look)
-            look.wearer = owner
-            look.garments = items
-            return look
-        }
-
-        let sundayLinen = look(me, "Sunday Linen", [linenShirt, camelTrousers, sneakers, strawHat])
         let biscuitLinen = look(biscuit, "Sunday Linen", [camelSweater, creamCollar])
-        let roseHour = look(me, "Rose Hour", [roseDress, sneakers])
         let sofiaRose = look(sofia, "Rose Hour", [blushBlouse, roseSkirt, flats])
         let lunaRose = look(luna, "Rose Hour", [blushBandana])
-        let cityNoir = look(me, "City Noir", [blackCoat, sageKnit, blackJeans, loafers])
         let weekendBlue = look(sofia, "Weekend Blue", [denimJacket, blushBlouse, navyTrousers, flats])
         let biscuitBlue = look(biscuit, "Weekend Blue", [navyCoat, creamCollar])
         _ = look(luna, "Garden", [sageSweater])
@@ -89,17 +110,8 @@ enum SampleData {
         let roseSet = set("Rose Hour", [roseHour, sofiaRose, lunaRose])
         _ = set("Weekend Blue", [weekendBlue, biscuitBlue])
 
-        let calendar = Calendar.current
-        let today = Date.now
-        func plan(_ offset: Int, look: Look? = nil, set: MatchSet? = nil) {
-            let entry = PlanEntry(day: calendar.date(byAdding: .day, value: offset, to: today) ?? today)
-            context.insert(entry)
-            entry.look = look
-            entry.matchSet = set
-        }
         plan(0, set: linenSet)
         plan(2, set: roseSet)
-        plan(5, look: cityNoir)
 
         try? context.save()
     }

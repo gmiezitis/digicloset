@@ -324,6 +324,11 @@ struct AddGarmentView: View {
             }
         }
         Personalizer.record(.added, garments: added, in: context)
+        if queue.items.isEmpty {
+            // Added by hand: give it a studio shot so it looks real in the closet and on the figure.
+            let context = context
+            Task { await GarmentStudio.fillMissing(in: context) }
+        }
         dismiss()
     }
 }

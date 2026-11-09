@@ -1,0 +1,11 @@
+name = "digicloset-tryon"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# "kling" (default, cheapest) or "fashn" to try FASHN first.
+PROVIDER = "kling"
+
+# Secrets (set once, never committed):
+#   npx wrangler secret put FAL_KEY
+#   npx wrangler secret put APP_TOKEN
