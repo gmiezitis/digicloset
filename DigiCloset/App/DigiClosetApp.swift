@@ -62,7 +62,7 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Runway", systemImage: "sparkles", value: AppTab.runway) { RunwayView() }
+            Tab("Looks", systemImage: "sparkles", value: AppTab.runway) { RunwayView() }
             Tab("Shuffle", systemImage: "shuffle", value: AppTab.shuffle) { ShuffleView() }
             Tab("Closet", systemImage: "hanger", value: AppTab.closet) { ClosetView() }
             Tab("Planner", systemImage: "calendar", value: AppTab.planner) { PlannerView() }

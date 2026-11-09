@@ -21,6 +21,7 @@ struct ShuffleView: View {
     @State private var toast: String?
     @State private var diceAngle = 0.0
     @State private var addingCompanion = false
+    @State private var addingClothes = false
 
     private var profile: UserProfile? { profiles.first }
     private var owner: Wearer? { wearers.first { $0.id == ownerID } ?? wearers.first(where: \.isSelf) ?? wearers.first }
@@ -165,9 +166,14 @@ struct ShuffleView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
+                if owner != nil {
+                    Button { addingClothes = true } label: { PrimaryButtonLabel(title: "Add clothes", systemImage: "camera") }
+                        .buttonStyle(PressableStyle())
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(30)
+            .sheet(isPresented: $addingClothes, onDismiss: { shuffle() }) { AddGarmentView(preselectedOwner: owner?.id) }
         }
     }
 
@@ -220,19 +226,22 @@ struct ShuffleView: View {
 
     private var controls: some View {
         HStack(spacing: 26) {
-            RoundControl(symbol: "xmark", size: 56, label: "Skip") { skip() }
-            Button { shuffle() } label: {
-                Image(systemName: "dice")
-                    .font(.system(size: 28, weight: .semibold))
-                    .rotationEffect(.degrees(diceAngle))
-                    .frame(width: 76, height: 76)
-                    .foregroundStyle(.white)
-                    .background(Theme.ink, in: Circle())
-                    .shadow(color: .black.opacity(0.25), radius: 14, y: 8)
+            RoundControl(symbol: "xmark", size: 56, label: "Not for me") { skip() }
+            VStack(spacing: 6) {
+                Button { shuffle() } label: {
+                    Image(systemName: "dice")
+                        .font(.system(size: 28, weight: .semibold))
+                        .rotationEffect(.degrees(diceAngle))
+                        .frame(width: 76, height: 76)
+                        .foregroundStyle(.white)
+                        .background(Theme.ink, in: Circle())
+                        .shadow(color: .black.opacity(0.25), radius: 14, y: 8)
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityLabel("Shuffle")
+                Text("Shuffle").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
             }
-            .buttonStyle(PressableStyle())
-            .accessibilityLabel("Shuffle")
-            RoundControl(symbol: "heart.fill", size: 56, label: "Love and save") { love() }
+            RoundControl(symbol: "heart.fill", size: 56, label: "Save look") { love() }
         }
         .disabled(outfit == nil)
         .opacity(outfit == nil ? 0.4 : 1)
@@ -290,7 +299,7 @@ struct ShuffleView: View {
         let feature: AppGoal = partner == nil ? .discover : (partner!.kind.isPet ? .dressPets : .matchFriends)
         Personalizer.record(.loved, garments: all, feature: feature, in: context)
         loves += 1
-        withAnimation(.spring(duration: 0.4)) { toast = "\(name) saved to Runway" }
+        withAnimation(.spring(duration: 0.4)) { toast = "\(name) saved to Looks" }
         Task {
             try? await Task.sleep(for: .seconds(1.6))
             withAnimation(.smooth) { toast = nil }
@@ -341,17 +350,21 @@ private struct RoundControl: View {
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .semibold))
-                .frame(width: size, height: size)
-                .foregroundStyle(Theme.ink)
-                .background(Theme.card, in: Circle())
-                .overlay(Circle().strokeBorder(Theme.hairline))
-                .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+        VStack(spacing: 6) {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: size, height: size)
+                    .foregroundStyle(Theme.ink)
+                    .background(Theme.card, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.hairline))
+                    .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+            }
+            .buttonStyle(PressableStyle())
+            .frame(height: 76)
+            .accessibilityLabel(label)
+            Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
         }
-        .buttonStyle(PressableStyle())
-        .accessibilityLabel(label)
     }
 }
 

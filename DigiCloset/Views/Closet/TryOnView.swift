@@ -52,10 +52,8 @@ struct TryOnView: View {
             }
         }
         .task {
-            let sources = garments.compactMap { g in (g.imageData ?? g.thumbnailData).map { ($0, g.category) } }
-            pieces = await Task.detached(priority: .userInitiated) {
-                sources.compactMap { TryOnService.piece($0.0, category: $0.1) }
-            }.value
+            let sources = garments.compactMap { TryOnService.source(for: $0) }
+            pieces = await Task.detached(priority: .userInitiated) { sources.compactMap { TryOnService.piece($0) } }.value
             reload(autoStart: true)
         }
         .onChange(of: baseRaw) { _, _ in error = nil; reload(autoStart: true) }
@@ -160,6 +158,11 @@ struct TryOnView: View {
         defer { working = false }
         let wanted = base
         do {
+            // Show the instant combination first, then the full AI dressing.
+            if result == nil, TryOnService.canCombine(pieces),
+               let quick = try? await TryOnService.quickDress(pieces, on: wanted), wanted == base {
+                result = quick
+            }
             let image = try await TryOnService.dress(pieces, on: wanted,
                                                      progress: { done, total in step = (done, total) },
                                                      partial: { if wanted == base { result = $0 } })

@@ -33,6 +33,28 @@ enum TryOnService {
         let category: String
         let key: String
         let order: Int
+        /// Name of a bundled, already-dressed mannequin image (example pieces).
+        var preset: String? = nil
+    }
+
+    /// What's needed to make a piece, read from a garment on the main actor.
+    struct Source: Sendable {
+        let data: Data
+        let category: GarmentCategory
+        let preset: String?
+    }
+
+    @MainActor
+    static func source(for garment: Garment) -> Source? {
+        guard supports(garment.category), let data = garment.imageData ?? garment.thumbnailData else { return nil }
+        let preset = ExamplePhotos.matches(name: garment.name, brand: garment.brand) ? ExamplePhotos.slug(garment.name) : nil
+        return Source(data: data, category: garment.category, preset: preset)
+    }
+
+    static func piece(_ source: Source) -> Piece? {
+        guard var piece = piece(source.data, category: source.category) else { return nil }
+        piece.preset = source.preset
+        return piece
     }
 
     static func category(for category: GarmentCategory) -> String? {
@@ -121,6 +143,86 @@ enum TryOnService {
             guard let piece = await Task.detached(priority: .userInitiated, operation: { self.piece(imageData, category: category) }).value
             else { return }
             _ = try? await dress([piece], on: base)
+        }
+    }
+
+    // MARK: Instant combining
+
+    /// A top over a bottom (or one piece alone) can be combined on the phone
+    /// from each piece's own mannequin image. Coats and dresses-with-layers
+    /// need the full AI dressing to sit right.
+    static func canCombine(_ pieces: [Piece]) -> Bool {
+        let orders = pieces.map(\.order).sorted()
+        return orders.count == 1 || orders == [0, 2]
+    }
+
+    nonisolated(unsafe) private static let combos = NSCache<NSString, UIImage>()
+
+    private static func presetData(_ piece: Piece, _ base: Base) -> Data? {
+        guard base == .mannequin, let name = piece.preset,
+              let url = Bundle.main.url(forResource: "tryon-\(name)", withExtension: "jpg") else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    private static func compose(_ baseData: Data, _ singles: [Data]) -> UIImage? {
+        if singles.count == 1 { return UIImage(data: singles[0]) }
+        guard let base = UIImage(data: baseData)?.cgImage else { return nil }
+        let layers = singles.compactMap { UIImage(data: $0)?.cgImage }
+        guard layers.count == singles.count, let out = TryOnCompositor.compose(base: base, layers: layers) else { return nil }
+        return UIImage(cgImage: out)
+    }
+
+    /// The combination if every piece has been dressed before. No network.
+    static func quickCached(_ pieces: [Piece], on base: Base) async -> UIImage? {
+        guard canCombine(pieces), let baseData = baseData(base) else { return nil }
+        let ordered = pieces.sorted { $0.order < $1.order }
+        let baseKey = hash(baseData)
+        let comboKey = "q" + chainKey(baseKey, ordered) as NSString
+        if let hit = combos.object(forKey: comboKey) { return hit }
+        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            var singles: [Data] = []
+            for piece in ordered {
+                guard let data = presetData(piece, base) ?? read(chainKey(baseKey, [piece])) else { return nil }
+                singles.append(data)
+            }
+            return compose(baseData, singles)
+        }.value
+        if let image { combos.setObject(image, forKey: comboKey) }
+        return image
+    }
+
+    /// Dresses any piece not seen before (all at once), then combines.
+    @MainActor
+    static func quickDress(_ pieces: [Piece], on base: Base) async throws -> UIImage {
+        guard canCombine(pieces), let baseData = baseData(base) else { throw Failure.unsupported }
+        let ordered = pieces.sorted { $0.order < $1.order }
+        let baseKey = hash(baseData)
+        // At most two pieces here; both are fetched at the same time.
+        var singles: [Data]
+        if ordered.count == 2 {
+            async let first = single(ordered[0], baseData: baseData, baseKey: baseKey, base: base)
+            async let second = single(ordered[1], baseData: baseData, baseKey: baseKey, base: base)
+            singles = [try await first, try await second]
+        } else {
+            singles = [try await single(ordered[0], baseData: baseData, baseKey: baseKey, base: base)]
+        }
+        let ready = singles
+        guard let image = await Task.detached(priority: .userInitiated, operation: { compose(baseData, ready) }).value
+        else { throw Failure.badImage }
+        combos.setObject(image, forKey: "q" + chainKey(baseKey, ordered) as NSString)
+        return image
+    }
+
+    @MainActor
+    private static func single(_ piece: Piece, baseData: Data, baseKey: String, base: Base) async throws -> Data {
+        if let preset = presetData(piece, base) { return preset }
+        guard TryOnConfig.isReady else { throw Failure.notConfigured }
+        let key = chainKey(baseKey, [piece])
+        return try await InFlight.shared.run(key) {
+            if let hit = read(key) { return hit }
+            let result = try await call(person: baseData, garment: piece.jpeg, category: piece.category)
+            write(key, result)
+            return result
         }
     }
 

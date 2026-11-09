@@ -29,7 +29,7 @@ struct ClosetView: View {
                     categoryStrip
 
                     if let current {
-                        GarmentGrid(ownerID: current.id, category: category?.rawValue ?? "", search: search)
+                        GarmentGrid(ownerID: current.id, category: category?.rawValue ?? "", search: search) { showAdd = true }
                             .padding(.horizontal, 20)
                     }
                 }
@@ -113,8 +113,13 @@ struct ClosetView: View {
 struct GarmentGrid: View {
     @Query private var garments: [Garment]
     @Environment(\.modelContext) private var context
+    @State private var pendingDelete: Garment?
+    private let isFiltered: Bool
+    private let onAdd: () -> Void
 
-    init(ownerID: UUID, category: String, search: String) {
+    init(ownerID: UUID, category: String, search: String, onAdd: @escaping () -> Void) {
+        self.onAdd = onAdd
+        isFiltered = !category.isEmpty || !search.isEmpty
         _garments = Query(
             filter: #Predicate<Garment> { g in
                 g.ownerID == ownerID
@@ -130,11 +135,18 @@ struct GarmentGrid: View {
         if garments.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "hanger").font(.system(size: 30)).foregroundStyle(Theme.muted)
-                Text("Nothing here yet").font(Theme.display(20))
-                Text("Tap + to photograph a piece. The background is removed automatically.")
+                Text(isFiltered ? "No matches" : "Nothing here yet").font(Theme.display(20))
+                Text(isFiltered ? "Try another category or search."
+                                : "Photograph a piece or pick photos. The background is removed automatically.")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
+                if !isFiltered {
+                    Button(action: onAdd) { PrimaryButtonLabel(title: "Add clothes", systemImage: "camera") }
+                        .buttonStyle(PressableStyle())
+                        .padding(.horizontal, 50)
+                        .padding(.top, 6)
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 60)
@@ -147,9 +159,19 @@ struct GarmentGrid: View {
                             Button(garment.isFavorite ? "Unfavourite" : "Favourite", systemImage: garment.isFavorite ? "heart.slash" : "heart") {
                                 Personalizer.toggleFavorite(garment, in: context)
                             }
-                            Button("Delete", systemImage: "trash", role: .destructive) { context.delete(garment) }
+                            Button("Delete", systemImage: "trash", role: .destructive) { pendingDelete = garment }
                         }
                 }
+            }
+            .confirmationDialog("Delete \(pendingDelete?.name ?? "this piece")?",
+                                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let garment = pendingDelete { context.delete(garment) }
+                    pendingDelete = nil
+                }
+            } message: {
+                Text("It's also removed from any looks it's in.")
             }
         }
     }

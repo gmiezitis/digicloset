@@ -90,6 +90,20 @@ struct AddGarmentView: View {
             }
             .sensoryFeedback(.success, trigger: queue.readyCount)
             .interactiveDismissDisabled(!queue.items.isEmpty)
+            .safeAreaInset(edge: .bottom) {
+                if canSave {
+                    Button(action: save) {
+                        PrimaryButtonLabel(title: queue.readyCount > 1 ? "Add \(queue.readyCount) to closet" : "Add to closet",
+                                           systemImage: "checkmark")
+                    }
+                    .buttonStyle(PressableStyle())
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth, value: canSave)
         }
     }
 

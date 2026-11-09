@@ -242,6 +242,7 @@ private struct ZoneFill: View {
     let layer: FigureLayer
     let figureWidth: CGFloat
     @State private var fabric: ImagePipeline.Fabric?
+    private static let usesPhotoFabric = false
 
     private var key: String { "\(layer.id.uuidString)-F\(layer.photo?.count ?? 0)-\(layer.colorHex)" }
 
@@ -257,7 +258,9 @@ private struct ZoneFill: View {
             }
         }
         .task(id: key) {
-            guard let photo = layer.photo else { fabric = nil; return }
+            // Product photos (folds, buttons, shadows) tile into streaks, so drawn
+            // figures wear the clean colour; the photo mannequin shows the real piece.
+            guard Self.usesPhotoFabric, let photo = layer.photo else { fabric = nil; return }
             if let hit = ImagePipeline.shared.cachedFabric(key) { fabric = hit; return }
             let loaded = await ImagePipeline.shared.fabric(for: key, data: photo, colorHex: layer.colorHex)
             withAnimation(.smooth(duration: 0.35)) { fabric = loaded }

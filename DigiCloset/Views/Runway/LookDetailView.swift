@@ -19,6 +19,22 @@ struct LookDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
+                if PhotoMannequin.canShow(look.kind) {
+                    Button { tryingOn = true } label: {
+                        PhotoMannequin(garments: look.items, height: 500, refine: true)
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 32, height: 32)
+                                    .background(.ultraThinMaterial, in: Circle())
+                                    .padding(12)
+                            }
+                    }
+                    .buttonStyle(PressableStyle())
+                    .foregroundStyle(Theme.ink)
+                    .padding(.top, 10)
+                    .accessibilityLabel("View larger or on my photo")
+                } else {
                 ZStack(alignment: .bottom) {
                     FloorShadow()
                         .frame(width: 520 * look.kind.soloHeight * look.kind.aspect * 1.1)
@@ -32,6 +48,7 @@ struct LookDetailView: View {
                 .frame(height: 540, alignment: .bottom)
                 .padding(.top, 10)
                 .sensoryFeedback(.impact(weight: .light), trigger: selected)
+                }
 
                 VStack(spacing: 6) {
                     Eyebrow(look.wearer?.name ?? "")
@@ -43,14 +60,6 @@ struct LookDetailView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Theme.muted)
                     }
-                }
-
-                if TryOnConfig.isReady, look.items.contains(where: { TryOnService.supports($0.category) }) {
-                    Button { tryingOn = true } label: {
-                        PrimaryButtonLabel(title: "View on mannequin", systemImage: "sparkles")
-                    }
-                    .buttonStyle(PressableStyle())
-                    .padding(.horizontal, 20)
                 }
 
                 if let garment = selectedGarment {

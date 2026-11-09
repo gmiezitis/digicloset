@@ -19,6 +19,8 @@ struct RunwayView: View {
     @State private var openLook: Look?
     @State private var openGarment: Garment?
     @State private var showBuilder = false
+    @State private var showAdd = false
+    @Query private var garments: [Garment]
 
     private var visibleLooks: [Look] {
         guard let filter else { return looks }
@@ -60,6 +62,7 @@ struct RunwayView: View {
             }
             .sheet(item: $openGarment) { GarmentDetailView(garment: $0).presentationDetents([.medium, .large]) }
             .sheet(isPresented: $showBuilder) { LookBuilderView() }
+            .sheet(isPresented: $showAdd) { AddGarmentView(preselectedOwner: nil) }
         }
     }
 
@@ -94,7 +97,10 @@ struct RunwayView: View {
             .buttonStyle(PressableStyle())
             .foregroundStyle(Theme.ink)
             .accessibilityLabel("Your style")
-            Button { showBuilder = true } label: {
+            Menu {
+                Button("Add clothes", systemImage: "camera") { showAdd = true }
+                Button("Create a look", systemImage: "sparkles") { showBuilder = true }
+            } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 46, height: 46)
@@ -102,8 +108,7 @@ struct RunwayView: View {
                     .background(Theme.ink, in: Circle())
                     .shadow(color: .black.opacity(0.2), radius: 10, y: 6)
             }
-            .buttonStyle(PressableStyle())
-            .accessibilityLabel("New look")
+            .accessibilityLabel("Add")
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -149,7 +154,11 @@ struct RunwayView: View {
 
     @ViewBuilder
     private var looksSection: some View {
-        if visibleLooks.isEmpty {
+        if visibleLooks.isEmpty, garments.isEmpty {
+            EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman,
+                        message: "Start by adding a few clothes. Snap them or pick photos, and they're cut out for you.",
+                        buttonTitle: "Add clothes", buttonIcon: "camera") { showAdd = true }
+        } else if visibleLooks.isEmpty {
             EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman) { showBuilder = true }
         } else {
             Carousel(items: visibleLooks, focused: $focusedLook, widthRatio: 0.56) { look, isFocused in
@@ -241,7 +250,7 @@ struct LookCard: View {
         VStack(spacing: 14) {
             Group {
                 if PhotoMannequin.canShow(look.kind) {
-                    PhotoMannequin(garments: look.items, height: 380, autoDress: isFocused)
+                    PhotoMannequin(garments: look.items, height: 380, autoDress: isFocused, refine: true)
                 } else {
                     StandingFigure(kind: look.kind, layers: look.layers, height: 380, fit: look.fit)
                 }
@@ -404,6 +413,8 @@ struct HarmonyBadge: View {
 struct EmptyRunway: View {
     var kind: WearerKind = .woman
     var message = "Style your first look and it will walk the runway here."
+    var buttonTitle = "Create a look"
+    var buttonIcon = "plus"
     var action: () -> Void
 
     var body: some View {
@@ -414,7 +425,7 @@ struct EmptyRunway: View {
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.muted)
                 .multilineTextAlignment(.center)
-            Button(action: action) { PrimaryButtonLabel(title: "Create a look", systemImage: "plus") }
+            Button(action: action) { PrimaryButtonLabel(title: buttonTitle, systemImage: buttonIcon) }
                 .buttonStyle(PressableStyle())
         }
         .padding(30)

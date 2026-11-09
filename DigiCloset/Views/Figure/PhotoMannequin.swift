@@ -10,7 +10,9 @@ struct PhotoMannequin: View {
     /// Start dressing on its own (e.g. only for the focused card).
     var autoDress = true
     /// Wait this long first, so fast shuffling doesn't start a try-on per tap.
-    var delay: Duration = .milliseconds(900)
+    var delay: Duration = .milliseconds(500)
+    /// Replace the instant combination with the full AI dressing (saved looks).
+    var refine = false
 
     @State private var dressed: UIImage?
     @State private var working = false
@@ -24,6 +26,8 @@ struct PhotoMannequin: View {
         wearable.map { "\($0.id.uuidString)-\($0.imageData?.count ?? $0.thumbnailData?.count ?? 0)" }.sorted().joined(separator: ",")
     }
     private var width: CGFloat { height * 2 / 3 }
+    private static let bare = TryOnService.image(for: .mannequin)
+    private var corner: CGFloat { min(26, height * 0.08) }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -33,6 +37,8 @@ struct PhotoMannequin: View {
                         .resizable()
                         .scaledToFill()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else if garments.isEmpty, let bare = Self.bare {
+                    Image(uiImage: bare).resizable().scaledToFill()
                 } else {
                     FlatLay(garments: garments, height: height)
                         .overlay(alignment: .bottom) {
@@ -49,18 +55,28 @@ struct PhotoMannequin: View {
             }
             .frame(width: width, height: height)
             .background(Theme.studio)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             .overlay {
                 if working && dressed == nil {
                     LinearGradient(colors: [.clear, .white.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
                         .frame(width: width * 0.5)
                         .offset(x: shimmer ? width : -width)
-                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                         .allowsHitTesting(false)
                 }
             }
 
-            if dressed != nil, !extras.isEmpty {
+            if dressed != nil, working, height >= 300 {
+                Label("Perfecting the fit", systemImage: "sparkles")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(12)
+                    .transition(.opacity)
+            }
+
+            if dressed != nil, !extras.isEmpty, height >= 300 {
                 VStack(spacing: 6) {
                     ForEach(extras) { g in
                         GarmentImage(garment: g)
@@ -83,20 +99,32 @@ struct PhotoMannequin: View {
     }
 
     private func load() async {
-        let sources = wearable.compactMap { g in (g.imageData ?? g.thumbnailData).map { ($0, g.category) } }
+        let sources = wearable.compactMap { TryOnService.source(for: $0) }
         guard !sources.isEmpty else { dressed = nil; return }
-        let pieces = await Task.detached(priority: .userInitiated) {
-            sources.compactMap { TryOnService.piece($0.0, category: $0.1) }
-        }.value
-        if let hit = TryOnService.cached(pieces, on: .mannequin) { dressed = hit; return }
-        dressed = nil
-        guard autoDress, PhotoMannequin.canShowAny else { return }
+        let pieces = await Task.detached(priority: .userInitiated) { sources.compactMap { TryOnService.piece($0) } }.value
+        // 1. The full AI dressing, if this exact outfit was made before.
+        if let exact = TryOnService.cached(pieces, on: .mannequin) { dressed = exact; return }
+        // 2. Pieces seen before combine on the phone, instantly.
+        let combinable = TryOnService.canCombine(pieces)
+        if combinable, let quick = await TryOnService.quickCached(pieces, on: .mannequin) {
+            dressed = quick
+            if !refine { return }
+        } else {
+            dressed = nil
+        }
+        guard autoDress, PhotoMannequin.canShowAny, !Task.isCancelled else { return }
         try? await Task.sleep(for: delay)
         guard !Task.isCancelled else { return }
         working = true
         defer { working = false }
-        if let image = try? await TryOnService.dress(pieces, on: .mannequin), !Task.isCancelled {
-            dressed = image
+        // 3. New pieces are dressed once each, together, then combined.
+        if dressed == nil, combinable, let quick = try? await TryOnService.quickDress(pieces, on: .mannequin), !Task.isCancelled {
+            dressed = quick
+        }
+        // 4. Coats and layered outfits, and saved looks, get the full AI dressing.
+        if (!combinable || refine), pieces.count > 1, !Task.isCancelled,
+           let exact = try? await TryOnService.dress(pieces, on: .mannequin), !Task.isCancelled {
+            dressed = exact
         }
     }
 
@@ -132,5 +160,20 @@ struct FlatLay: View {
         .padding(.top, height * 0.04)
         .padding(.bottom, height * 0.14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// One look as a photo mannequin (saved result or flat lay, never starting a
+/// new try-on); pets and matching sets keep the drawn figures.
+struct LookFigure: View {
+    let looks: [Look]
+    let height: CGFloat
+
+    var body: some View {
+        if looks.count == 1, let look = looks.first, PhotoMannequin.canShow(look.kind) {
+            PhotoMannequin(garments: look.items, height: height, autoDress: false)
+        } else {
+            GroupFigure(looks: looks, height: height)
+        }
     }
 }

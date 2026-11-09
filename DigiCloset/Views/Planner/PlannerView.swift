@@ -125,7 +125,7 @@ struct PlannedCard: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 16) {
-                GroupFigure(looks: entry.looks, height: 170)
+                LookFigure(looks: entry.looks, height: 170)
                     .frame(width: 150, height: 180, alignment: .bottom)
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(entry.matchSet != nil ? "Matching set" : (entry.look?.wearer?.name ?? "Look"))
@@ -168,7 +168,18 @@ struct PlanPicker: View {
                             }
                         }
                     }
-                    Eyebrow("Looks").padding(.top, 8)
+                    if looks.isEmpty && sets.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: "sparkles").font(.system(size: 28)).foregroundStyle(Theme.muted)
+                            Text("No saved looks yet").font(Theme.display(20))
+                            Text("Save an outfit you like in Shuffle, or create one in Looks. It will show up here to plan.")
+                                .font(.system(size: 13)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 50)
+                    } else {
+                        Eyebrow("Looks").padding(.top, 8)
+                    }
                     ForEach(looks) { look in
                         row(title: look.name, subtitle: look.wearer?.name ?? "", looks: [look]) {
                             plan { $0.look = look }
@@ -187,7 +198,7 @@ struct PlanPicker: View {
     private func row(title: String, subtitle: String, looks: [Look], action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                GroupFigure(looks: looks, height: 90)
+                LookFigure(looks: looks, height: 90)
                     .frame(width: 90, height: 96, alignment: .bottom)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(Theme.display(19))

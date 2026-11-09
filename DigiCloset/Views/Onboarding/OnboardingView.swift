@@ -33,7 +33,12 @@ struct OnboardingView: View {
     }
 
     private var steps: [Step] {
-        Step.allCases.filter { $0 != .people || goals.contains(.matchFriends) || goals.contains(.dressPets) }
+        // Body shape and measurements are asked later, in Your style: personal
+        // questions before any value is the main reason people quit a sign-up.
+        Step.allCases.filter { step in
+            if step == .body || step == .measurements { return false }
+            return step != .people || goals.contains(.matchFriends) || goals.contains(.dressPets)
+        }
     }
 
     var body: some View {

@@ -62,7 +62,10 @@ struct LookBuilderView: View {
     private var preview: some View {
         VStack(spacing: 12) {
             HStack(alignment: .bottom, spacing: 0) {
-                if let owner {
+                if let owner, partner == nil, PhotoMannequin.canShow(owner.kind) {
+                    // Real photos at once, then the dressed mannequin once picking pauses.
+                    PhotoMannequin(garments: picked, height: 310, delay: .milliseconds(700))
+                } else if let owner {
                     StandingFigure(kind: owner.kind, layers: picked.map(\.layer), height: 300, solo: partner == nil, fit: owner.fit)
                 }
                 if let partner {
