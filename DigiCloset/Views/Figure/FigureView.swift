@@ -5,21 +5,12 @@ import UIKit
 /// the cutout image. Measured from the mannequin artwork.
 enum FigureZones {
     static func zones(for category: GarmentCategory, kind: WearerKind) -> [CGRect] {
-        switch kind {
-        case .dog: dog(category)
-        case .cat: cat(category)
-        default: human(category)
-        }
+        // Pets aren't painted: their real pieces are shown beside them (PetPieces).
+        kind.isPet ? [] : human(category)
     }
 
     static func pin(for category: GarmentCategory, kind: WearerKind) -> CGPoint {
         switch (kind, category) {
-        case (.dog, .sweater): CGPoint(x: 0.56, y: 0.4)
-        case (.dog, .collar): CGPoint(x: 0.22, y: 0.24)
-        case (.dog, _): CGPoint(x: 0.25, y: 0.32)
-        case (.cat, .sweater): CGPoint(x: 0.5, y: 0.52)
-        case (.cat, .collar): CGPoint(x: 0.26, y: 0.315)
-        case (.cat, _): CGPoint(x: 0.26, y: 0.38)
         case (_, .top): CGPoint(x: 0.58, y: 0.29)
         case (_, .outerwear): CGPoint(x: 0.3, y: 0.37)
         case (_, .dress): CGPoint(x: 0.5, y: 0.4)
@@ -40,24 +31,6 @@ enum FigureZones {
         case .skirt: []
         case .shoes: [CGRect(x: 0, y: 0.935, width: 1, height: 0.065)]
         case .hat: []
-        default: []
-        }
-    }
-
-    private static func dog(_ c: GarmentCategory) -> [CGRect] {
-        switch c {
-        case .sweater: [CGRect(x: 0.15, y: 0.2, width: 0.76, height: 0.42)]
-        case .collar: [CGRect(x: 0.13, y: 0.205, width: 0.19, height: 0.065)]
-        case .bandana: [CGRect(x: 0.14, y: 0.22, width: 0.2, height: 0.17)]
-        default: []
-        }
-    }
-
-    private static func cat(_ c: GarmentCategory) -> [CGRect] {
-        switch c {
-        case .sweater: [CGRect(x: 0, y: 0.34, width: 1, height: 0.36)]
-        case .collar: [CGRect(x: 0.02, y: 0.295, width: 0.5, height: 0.045)]
-        case .bandana: [CGRect(x: 0.02, y: 0.3, width: 0.5, height: 0.15)]
         default: []
         }
     }
@@ -114,7 +87,8 @@ struct FigureView: View {
                 // Bags hang from the hand as the real photo.
                 if !kind.isPet, let bag = layers.last(where: { $0.category == .bag && $0.photo != nil }) {
                     GeometryReader { geo in
-                        HeldPhoto(layer: bag)
+                        LayerPhoto(layer: bag)
+                            .shadow(color: .black.opacity(0.2), radius: 3, y: 2)
                             .frame(width: geo.size.height * 0.15, height: geo.size.height * 0.15)
                             .position(x: geo.size.width * 0.93, y: geo.size.height * 0.63)
                     }
@@ -123,7 +97,7 @@ struct FigureView: View {
                 }
             }
             .overlay {
-                if showsPins {
+                if showsPins, !kind.isPet {
                     GeometryReader { geo in
                         ForEach(layers) { layer in
                             let point = FigureZones.pin(for: layer.category, kind: kind)
@@ -283,29 +257,71 @@ private struct EdgeFade: View {
     }
 }
 
-/// A real garment photo carried by the figure (bags).
-private struct HeldPhoto: View {
+/// One piece as its real cutout photo, or a drawn shape in its colour when it
+/// was added without a photo.
+private struct LayerPhoto: View {
     let layer: FigureLayer
     @State private var image: UIImage?
+
+    private var key: String { "\(layer.id.uuidString)-S-\(layer.photo?.count ?? 0)" }
 
     var body: some View {
         Group {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
-                    .shadow(color: .black.opacity(0.2), radius: 3, y: 2)
+            } else if layer.photo == nil {
+                GarmentArt(category: layer.category, colorHex: layer.colorHex)
+            } else {
+                Color.clear
             }
         }
-        .task(id: layer.id) {
-            let key = "\(layer.id.uuidString)-S"
+        .task(id: key) {
+            guard let photo = layer.photo else { image = nil; return }
             if let hit = ImagePipeline.shared.cached(key) { image = hit; return }
-            guard let photo = layer.photo else { return }
             image = await ImagePipeline.shared.image(for: key, data: photo, maxPixel: 480)
         }
     }
 }
 
+/// A pet's pieces as real photos, stacked beside the pet. Try-on only works on
+/// people, so pets show the true sweater, collar or bandana next to them
+/// instead of a painted-on colour.
+struct PetPieces: View {
+    let layers: [FigureLayer]
+    /// Height of the pet figure they stand next to.
+    let petHeight: CGFloat
+    var selected: UUID?
+    var onTap: ((UUID) -> Void)?
+
+    private func size(_ category: GarmentCategory) -> CGFloat {
+        let share: CGFloat = switch category {
+        case .sweater: 0.46
+        case .bandana: 0.28
+        default: 0.22
+        }
+        return max(30, petHeight * share)
+    }
+
+    var body: some View {
+        VStack(spacing: max(4, petHeight * 0.04)) {
+            ForEach(layers.sorted { $0.category.layer > $1.category.layer }) { layer in
+                let side = size(layer.category)
+                LayerPhoto(layer: layer)
+                    .frame(width: side, height: side)
+                    .shadow(color: .black.opacity(0.14), radius: 4, y: 3)
+                    .scaleEffect(selected == layer.id ? 1.12 : 1)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onTap?(layer.id) }
+                    .allowsHitTesting(onTap != nil)
+                    .accessibilityLabel(layer.category.noun)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: selected)
+    }
+}
+
 /// Fades a zone's left/right edges when it stops partway across the figure,
-/// so pet sweaters and collars don't look like boxes.
+/// so pieces like a dress bodice don't look like boxes.
 private struct SideFade: View {
     let zone: CGRect
     let width: CGFloat
@@ -357,9 +373,23 @@ struct StandingFigure: View {
     let height: CGFloat
     var solo = true
     var fit: BodyFit = .standard
+    /// Pets only: the highlighted piece and what happens when one is tapped.
+    var selectedPiece: UUID?
+    var onPiece: ((UUID) -> Void)?
 
     var body: some View {
         let h = height * (solo ? kind.soloHeight : kind.relativeHeight * fit.height)
+        if kind.isPet, !layers.isEmpty {
+            HStack(alignment: .bottom, spacing: max(6, h * 0.06)) {
+                figure(h, layers: [])
+                PetPieces(layers: layers, petHeight: h, selected: selectedPiece, onTap: onPiece)
+            }
+        } else {
+            figure(h, layers: layers)
+        }
+    }
+
+    private func figure(_ h: CGFloat, layers: [FigureLayer]) -> some View {
         ZStack(alignment: .bottom) {
             FloorShadow()
                 .frame(width: max(h * kind.aspect * 0.95 * fit.width, 60))

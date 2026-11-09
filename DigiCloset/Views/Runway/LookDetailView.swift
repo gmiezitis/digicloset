@@ -34,6 +34,14 @@ struct LookDetailView: View {
                     .foregroundStyle(Theme.ink)
                     .padding(.top, 10)
                     .accessibilityLabel("View larger or on my photo")
+                } else if look.kind.isPet {
+                    // Pets stand next to their real pieces; tap a piece to see it.
+                    StandingFigure(kind: look.kind, layers: look.layers, height: 420, selectedPiece: selected) { id in
+                        withAnimation(.spring(duration: 0.4, bounce: 0.25)) { selected = selected == id ? nil : id }
+                    }
+                    .frame(height: 300, alignment: .bottom)
+                    .padding(.top, 10)
+                    .sensoryFeedback(.impact(weight: .light), trigger: selected)
                 } else {
                 ZStack(alignment: .bottom) {
                     FloorShadow()
