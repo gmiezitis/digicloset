@@ -5,6 +5,16 @@ compatibility_date = "2026-10-01"
 [vars]
 # "kling" (default, cheapest) or "fashn" to try FASHN first.
 PROVIDER = "kling"
+# Try-on limits per UTC day. Each try-on costs ~$0.07, so 200/day caps spend at ~$14/day.
+DAILY_LIMIT = "200"
+DEVICE_DAILY_LIMIT = "10"
+
+# Counter store for the limits. Create it once and paste the id below:
+#   npx wrangler kv namespace create QUOTA
+# The worker refuses all try-ons (503) until this is set up.
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "PASTE_KV_NAMESPACE_ID"
 
 # Secrets (set once, never committed):
 #   npx wrangler secret put FAL_KEY
