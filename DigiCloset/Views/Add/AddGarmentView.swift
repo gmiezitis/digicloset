@@ -119,7 +119,11 @@ struct AddGarmentView: View {
             if let item = single {
                 if let cutout = item.cutout {
                     HStack(spacing: 6) {
-                        if item.state == .ready, let owner {
+                        if item.state == .ready, let output = item.output, !queue.forPet,
+                           TryOnConfig.isReady, TryOnService.supports(item.category) {
+                            MannequinPreview(cutout: output.cutout, category: item.category)
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                        } else if item.state == .ready, let owner {
                             OnYouPreview(kind: owner.kind, fit: owner.fit,
                                          layer: FigureLayer(id: item.id, category: item.category, colorHex: item.colorHex,
                                                             photo: item.output?.thumbnail))
@@ -611,5 +615,73 @@ private struct OnYouPreview: View {
                 .foregroundStyle(Theme.muted)
         }
         .frame(width: kind.isPet ? 120 : 86)
+    }
+}
+
+/// Photo-real preview on the mannequin, started the moment a photo is cleaned up.
+/// The result is cached by image, so the closet and looks reuse it instantly.
+private struct MannequinPreview: View {
+    let cutout: Data
+    let category: GarmentCategory
+
+    @State private var result: UIImage?
+    @State private var failed = false
+    @State private var expanded = false
+    @State private var shimmer = false
+    private let base = TryOnService.image(for: .mannequin)
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: 0)
+            Button { if result != nil { expanded = true } } label: {
+                ZStack {
+                    if let shown = result ?? base {
+                        Image(uiImage: shown).resizable().scaledToFit()
+                            .opacity(result == nil ? 0.45 : 1)
+                    }
+                    if result == nil && !failed {
+                        LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 50)
+                            .offset(y: shimmer ? 110 : -110)
+                            .blendMode(.plusLighter)
+                    }
+                }
+                .frame(width: 112, height: 236)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            Text(result != nil ? "On mannequin · tap" : failed ? "Preview failed" : "Dressing…")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(1)
+                .textCase(.uppercase)
+                .foregroundStyle(Theme.muted)
+        }
+        .frame(width: 112)
+        .animation(.easeInOut(duration: 0.5), value: result)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false)) { shimmer = true }
+        }
+        .task(id: "\(cutout.count)-\(category.rawValue)") {
+            result = nil
+            failed = false
+            let data = cutout, category = category
+            guard let piece = await Task.detached(priority: .userInitiated, operation: { TryOnService.piece(data, category: category) }).value
+            else { failed = true; return }
+            if let hit = TryOnService.cached([piece], on: .mannequin) { result = hit; return }
+            do { result = try await TryOnService.dress([piece], on: .mannequin) } catch { failed = true }
+        }
+        .fullScreenCover(isPresented: $expanded) {
+            ZStack(alignment: .topTrailing) {
+                StudioBackground().ignoresSafeArea()
+                if let result { Image(uiImage: result).resizable().scaledToFit().padding(20) }
+                Button { expanded = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 15, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .foregroundStyle(Theme.ink)
+                .padding(20)
+            }
+        }
     }
 }

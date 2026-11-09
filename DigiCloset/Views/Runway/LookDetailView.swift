@@ -12,6 +12,7 @@ struct LookDetailView: View {
     @State private var planDate = Date.now
     @State private var woreToday = false
     @State private var confirmDelete = false
+    @State private var tryingOn = false
 
     private var selectedGarment: Garment? { look.items.first { $0.id == selected } }
 
@@ -42,6 +43,14 @@ struct LookDetailView: View {
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Theme.muted)
                     }
+                }
+
+                if TryOnConfig.isReady, look.items.contains(where: { TryOnService.supports($0.category) }) {
+                    Button { tryingOn = true } label: {
+                        PrimaryButtonLabel(title: "View on mannequin", systemImage: "sparkles")
+                    }
+                    .buttonStyle(PressableStyle())
+                    .padding(.horizontal, 20)
                 }
 
                 if let garment = selectedGarment {
@@ -96,6 +105,7 @@ struct LookDetailView: View {
                 dismiss()
             }
         }
+        .fullScreenCover(isPresented: $tryingOn) { TryOnView(look: look) }
         .sheet(isPresented: $showPlanner) {
             NavigationStack {
                 DatePicker("Day", selection: $planDate, in: Date.now..., displayedComponents: .date)

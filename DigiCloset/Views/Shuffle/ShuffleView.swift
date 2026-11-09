@@ -126,7 +126,11 @@ struct ShuffleView: View {
         if let owner, let outfit {
             VStack(spacing: 12) {
                 HStack(alignment: .bottom, spacing: -10) {
-                    StandingFigure(kind: owner.kind, layers: outfit.layers, height: 320, solo: partner == nil, fit: owner.fit)
+                    if partner == nil, PhotoMannequin.canShow(owner.kind) {
+                        PhotoMannequin(garments: outfit.garments, height: 330)
+                    } else {
+                        StandingFigure(kind: owner.kind, layers: outfit.layers, height: 320, solo: partner == nil, fit: owner.fit)
+                    }
                     if let partner, let partnerOutfit {
                         StandingFigure(kind: partner.kind, layers: partnerOutfit.layers, height: 320, solo: false, fit: partner.fit)
                             .transition(.move(edge: .trailing).combined(with: .opacity))

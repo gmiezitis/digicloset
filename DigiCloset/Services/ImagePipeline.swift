@@ -174,7 +174,7 @@ struct GarmentImage: View {
 
     @State private var image: UIImage?
 
-    private var key: String { "\(garment.id.uuidString)-\(large ? "L" : "S")" }
+    private var key: String { "\(garment.id.uuidString)-\(large ? "L" : "S")-\(garment.thumbnailData?.count ?? 0)" }
 
     var body: some View {
         Group {

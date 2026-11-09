@@ -1,8 +1,12 @@
 import UIKit
 import CryptoKit
 
-/// Photo-real try-on: sends the person's photo and a garment to our backend
-/// (Kling, falling back to FASHN) and caches each result so it's paid for once.
+/// Photo-real try-on with Kling (FASHN as fallback), through our backend or,
+/// in development, straight to fal.ai.
+///
+/// Speed: results are cached on disk by the images involved, so a preview made
+/// while adding a piece is reused everywhere later. Identical requests share one
+/// network call, uploads are downscaled, and the result comes back inline.
 enum TryOnService {
     enum Failure: LocalizedError {
         case notConfigured, unsupported, badImage, server(String)
@@ -16,6 +20,21 @@ enum TryOnService {
         }
     }
 
+    /// Who wears the garment: the built-in photo-real mannequin or the user's own photo.
+    enum Base: String, CaseIterable, Identifiable, Sendable {
+        case mannequin, me
+        var id: String { rawValue }
+        var title: String { self == .mannequin ? "Mannequin" : "My photo" }
+    }
+
+    /// One piece ready to send: product shot on white plus its try-on category.
+    struct Piece: Sendable {
+        let jpeg: Data
+        let category: String
+        let key: String
+        let order: Int
+    }
+
     static func category(for category: GarmentCategory) -> String? {
         switch category {
         case .top, .sweater, .outerwear: "tops"
@@ -25,77 +44,133 @@ enum TryOnService {
         }
     }
 
-    // MARK: Your photo
+    static func supports(_ category: GarmentCategory) -> Bool { self.category(for: category) != nil }
 
-    private static var personURL: URL {
-        URL.documentsDirectory.appending(path: "tryon-person.jpg")
+    // MARK: Bases
+
+    private static var personURL: URL { URL.documentsDirectory.appending(path: "tryon-person.jpg") }
+
+    static func baseData(_ base: Base) -> Data? {
+        switch base {
+        case .mannequin: Bundle.main.url(forResource: "tryon-mannequin", withExtension: "jpg").flatMap { try? Data(contentsOf: $0) }
+        case .me: try? Data(contentsOf: personURL)
+        }
     }
 
-    static func savedPerson() -> UIImage? {
-        UIImage(contentsOfFile: personURL.path(percentEncoded: false))
-    }
+    static func image(for base: Base) -> UIImage? { baseData(base).flatMap(UIImage.init(data:)) }
 
     static func savePerson(_ data: Data) throws {
-        guard let image = UIImage(data: data), let jpeg = resized(image, maxSide: 1280)?.jpegData(compressionQuality: 0.88)
+        guard let image = UIImage(data: data), let jpeg = resized(image, maxSide: 1024)?.jpegData(compressionQuality: 0.85)
         else { throw Failure.badImage }
         try jpeg.write(to: personURL, options: .atomic)
     }
 
-    // MARK: Try-on
+    // MARK: Public API
 
-    static func cached(garmentID: UUID) -> UIImage? {
-        guard let url = cacheURL(garmentID: garmentID) else { return nil }
-        return UIImage(contentsOfFile: url.path(percentEncoded: false))
+    static func piece(_ imageData: Data, category: GarmentCategory) -> Piece? {
+        guard let falCategory = self.category(for: category),
+              let image = UIImage(data: imageData),
+              let jpeg = onWhite(image)?.jpegData(compressionQuality: 0.85) else { return nil }
+        let order = switch category {
+        case .bottom, .skirt: 0
+        case .dress: 1
+        case .top, .sweater: 2
+        default: 3
+        }
+        return Piece(jpeg: jpeg, category: falCategory, key: hash(jpeg), order: order)
     }
 
-    static func tryOn(garmentID: UUID, garmentImage: Data, category: GarmentCategory) async throws -> UIImage {
+    static func cached(_ pieces: [Piece], on base: Base) -> UIImage? {
+        guard let data = baseData(base), !pieces.isEmpty else { return nil }
+        let key = chainKey(hash(data), pieces.sorted { $0.order < $1.order })
+        return read(key).flatMap(UIImage.init(data:))
+    }
+
+    /// Dresses the base in each piece in turn (bottoms, then dresses, then tops, then coats).
+    /// `progress` reports the step that's running, and `partial` each finished step's image.
+    @MainActor
+    static func dress(_ pieces: [Piece], on base: Base,
+                      progress: (@MainActor (Int, Int) -> Void)? = nil,
+                      partial: (@MainActor (UIImage) -> Void)? = nil) async throws -> UIImage {
         guard TryOnConfig.isReady else { throw Failure.notConfigured }
-        guard let falCategory = self.category(for: category) else { throw Failure.unsupported }
-        guard let personData = try? Data(contentsOf: personURL),
-              let garment = UIImage(data: garmentImage),
-              let garmentJPEG = onWhite(garment)?.jpegData(compressionQuality: 0.9)
-        else { throw Failure.badImage }
-
-        let link = TryOnConfig.usesWorker
-            ? try await viaWorker(person: personData, garment: garmentJPEG, category: falCategory)
-            : try await viaFal(person: personData, garment: garmentJPEG, category: falCategory)
-        guard let imageURL = URL(string: link) else { throw Failure.server("Try-on failed. Please try again.") }
-
-        let (imageData, _) = try await URLSession.shared.data(from: imageURL)
-        guard let image = UIImage(data: imageData) else { throw Failure.badImage }
-        if let url = cacheURL(garmentID: garmentID) { try? imageData.write(to: url, options: .atomic) }
+        guard !pieces.isEmpty else { throw Failure.unsupported }
+        guard var person = baseData(base) else { throw Failure.badImage }
+        let ordered = pieces.sorted { $0.order < $1.order }
+        var key = hash(person)
+        for (index, piece) in ordered.enumerated() {
+            progress?(index + 1, ordered.count)
+            let stepKey = chainKey(key, [piece])
+            person = try await InFlight.shared.run(stepKey) { [person] in
+                if let hit = read(stepKey) { return hit }
+                let result = try await call(person: person, garment: piece.jpeg, category: piece.category)
+                write(stepKey, result)
+                return result
+            }
+            key = stepKey
+            if index < ordered.count - 1, let image = UIImage(data: person) { partial?(image) }
+        }
+        guard let image = UIImage(data: person) else { throw Failure.badImage }
         return image
     }
 
-    private static func viaWorker(person: Data, garment: Data, category: String) async throws -> String {
+    /// Starts a try-on in the background so it's ready by the time the user looks.
+    @MainActor
+    static func prefetch(_ imageData: Data, category: GarmentCategory, on base: Base = .mannequin) {
+        guard TryOnConfig.isReady else { return }
+        Task {
+            guard let piece = await Task.detached(priority: .userInitiated, operation: { self.piece(imageData, category: category) }).value
+            else { return }
+            _ = try? await dress([piece], on: base)
+        }
+    }
+
+    // MARK: Network
+
+    private static func call(person: Data, garment: Data, category: String) async throws -> Data {
+        TryOnConfig.usesWorker
+            ? try await viaWorker(person: person, garment: garment, category: category)
+            : try await viaFal(person: person, garment: garment, category: category)
+    }
+
+    private static func viaWorker(person: Data, garment: Data, category: String) async throws -> Data {
         guard let endpoint = URL(string: TryOnConfig.workerURL)?.appending(path: "tryon") else { throw Failure.notConfigured }
         let json = try await post(endpoint, headers: ["X-App-Token": TryOnConfig.appToken], body: [
             "person": person.base64EncodedString(),
             "garment": garment.base64EncodedString(),
             "category": category,
         ])
-        guard let link = json["image"] as? String else { throw Failure.server("Try-on failed: \(json["error"] ?? "unknown")") }
-        return link
+        guard let link = json["image"] as? String else { throw Failure.server("Try-on failed. Please try again.") }
+        return try await download(link)
     }
 
     /// Development only: straight to fal.ai with the key from Secrets.plist. Kling first, FASHN if it fails.
-    private static func viaFal(person: Data, garment: Data, category: String) async throws -> String {
+    private static func viaFal(person: Data, garment: Data, category: String) async throws -> Data {
         guard let key = TryOnConfig.devFalKey else { throw Failure.notConfigured }
         let personURI = "data:image/jpeg;base64,\(person.base64EncodedString())"
         let garmentURI = "data:image/jpeg;base64,\(garment.base64EncodedString())"
         let headers = ["Authorization": "Key \(key)"]
         do {
             let json = try await post(URL(string: "https://fal.run/fal-ai/kling/v1-5/kolors-virtual-try-on")!, headers: headers,
-                                      body: ["human_image_url": personURI, "garment_image_url": garmentURI])
-            if let link = (json["image"] as? [String: Any])?["url"] as? String { return link }
+                                      body: ["human_image_url": personURI, "garment_image_url": garmentURI, "sync_mode": true])
+            if let link = (json["image"] as? [String: Any])?["url"] as? String { return try await download(link) }
         } catch {}
         let json = try await post(URL(string: "https://fal.run/fal-ai/fashn/tryon/v1.6")!, headers: headers, body: [
             "model_image": personURI, "garment_image": garmentURI, "category": category,
-            "garment_photo_type": "flat-lay", "output_format": "jpeg",
+            "garment_photo_type": "flat-lay", "output_format": "jpeg", "mode": "performance", "sync_mode": true,
         ])
         guard let link = ((json["images"] as? [[String: Any]])?.first)?["url"] as? String
         else { throw Failure.server("Try-on failed. Please try again.") }
-        return link
+        return try await download(link)
+    }
+
+    /// Accepts inline data URIs (sync mode) as well as normal links.
+    private static func download(_ link: String) async throws -> Data {
+        if link.hasPrefix("data:"), let comma = link.firstIndex(of: ",") {
+            guard let data = Data(base64Encoded: String(link[link.index(after: comma)...])) else { throw Failure.badImage }
+            return data
+        }
+        guard let url = URL(string: link) else { throw Failure.badImage }
+        return try await URLSession.shared.data(from: url).0
     }
 
     private static func post(_ url: URL, headers: [String: String], body: [String: Any]) async throws -> [String: Any] {
@@ -112,20 +187,30 @@ enum TryOnService {
         return json
     }
 
-    // MARK: Helpers
+    // MARK: Cache
 
-    /// Cache key includes the person photo, so a new photo means fresh results.
-    private static func cacheURL(garmentID: UUID) -> URL? {
-        guard let person = try? Data(contentsOf: personURL) else { return nil }
-        let tag = SHA256.hash(data: person).prefix(6).map { String(format: "%02x", $0) }.joined()
+    private static func hash(_ data: Data) -> String {
+        SHA256.hash(data: data).prefix(10).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func chainKey(_ start: String, _ pieces: [Piece]) -> String {
+        pieces.reduce(start) { hash(Data(($0 + $1.key).utf8)) }
+    }
+
+    private static func cacheURL(_ key: String) -> URL {
         let dir = URL.cachesDirectory.appending(path: "tryon", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appending(path: "\(garmentID.uuidString)-\(tag).jpg")
+        return dir.appending(path: "\(key).jpg")
     }
+
+    private static func read(_ key: String) -> Data? { try? Data(contentsOf: cacheURL(key)) }
+    private static func write(_ key: String, _ data: Data) { try? data.write(to: cacheURL(key), options: .atomic) }
+
+    // MARK: Images
 
     /// Try-on models expect a product shot on white, not a transparent cutout.
     private static func onWhite(_ image: UIImage) -> UIImage? {
-        let scale = min(1, 1024 / max(image.size.width, image.size.height))
+        let scale = min(1, 768 / max(image.size.width, image.size.height))
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let pad = max(size.width, size.height) * 0.08
         let canvas = CGSize(width: size.width + pad * 2, height: size.height + pad * 2)
@@ -148,4 +233,22 @@ enum TryOnService {
             image.draw(in: CGRect(origin: .zero, size: size))
         }
     }
+}
+
+/// Makes identical try-ons share one network call (e.g. a background prefetch
+/// and the user tapping "Try it on" a second later).
+@MainActor
+final class InFlight {
+    static let shared = InFlight()
+    private var tasks: [String: Task<Data, Error>] = [:]
+
+    func run(_ key: String, _ work: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        if let task = tasks[key] { return try await task.value }
+        let task = Task.detached(priority: .userInitiated) { try await work() }
+        tasks[key] = task
+        defer { tasks[key] = nil }
+        return try await task.value
+    }
+
+    func isRunning(_ key: String) -> Bool { tasks[key] != nil }
 }

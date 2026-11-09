@@ -210,7 +210,7 @@ struct GarmentDetailView: View {
                     .background(LinearGradient(colors: [Theme.card, Theme.studio], startPoint: .top, endPoint: .bottom),
                                 in: RoundedRectangle(cornerRadius: 30, style: .continuous))
 
-                if TryOnService.category(for: garment.category) != nil {
+                if TryOnConfig.isReady, TryOnService.supports(garment.category) {
                     Button { tryingOn = true } label: {
                         Label("Try it on", systemImage: "sparkles")
                             .font(.headline)

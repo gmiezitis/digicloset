@@ -239,8 +239,14 @@ struct LookCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            StandingFigure(kind: look.kind, layers: look.layers, height: 380, fit: look.fit)
-                .frame(height: 400, alignment: .bottom)
+            Group {
+                if PhotoMannequin.canShow(look.kind) {
+                    PhotoMannequin(garments: look.items, height: 380, autoDress: isFocused)
+                } else {
+                    StandingFigure(kind: look.kind, layers: look.layers, height: 380, fit: look.fit)
+                }
+            }
+            .frame(height: 400, alignment: .bottom)
             VStack(spacing: 4) {
                 Text(look.name)
                     .font(Theme.display(21))

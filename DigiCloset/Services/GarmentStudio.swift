@@ -25,23 +25,33 @@ enum GarmentStudio {
 
     // MARK: Filling in missing photos
 
-    /// Gives every piece without a photo a rendered one, a few at a time in the
-    /// background. Safe to call often: pieces that already have one are skipped.
+    /// Gives every piece without a photo one: the bundled product photo for
+    /// example pieces, otherwise a rendered studio shot. Example pieces that
+    /// still carry the older drawn shot are upgraded once. Safe to call often.
     @MainActor
     static func fillMissing(in context: ModelContext) async {
         guard !isFilling else { return }
         isFilling = true
         defer { isFilling = false }
+        let upgrade = !UserDefaults.standard.bool(forKey: exampleUpgradeKey)
         let all = (try? context.fetch(FetchDescriptor<Garment>())) ?? []
-        for garment in all where garment.thumbnailData == nil {
+        for garment in all {
+            let isExample = ExamplePhotos.matches(name: garment.name, brand: garment.brand)
+            guard garment.thumbnailData == nil || (upgrade && isExample) else { continue }
             let (name, category, hex) = (garment.name, garment.category, garment.colorHex)
-            guard let rendered = await render(name: name, category: category, colorHex: hex) else { continue }
-            guard garment.thumbnailData == nil else { continue }
-            garment.imageData = rendered.image
-            garment.thumbnailData = rendered.thumbnail
+            var result = isExample ? await ExamplePhotos.load(name: name) : nil
+            if result == nil, garment.thumbnailData == nil {
+                result = await render(name: name, category: category, colorHex: hex)
+            }
+            guard let result else { continue }
+            garment.imageData = result.image
+            garment.thumbnailData = result.thumbnail
         }
         try? context.save()
+        UserDefaults.standard.set(true, forKey: exampleUpgradeKey)
     }
+
+    private static let exampleUpgradeKey = "examplePhotos.v1"
 
     @MainActor private static var isFilling = false
 
@@ -672,6 +682,48 @@ enum GarmentStudio {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
+    }
+}
+
+/// Real product photos for the example closet, cut out ahead of time and
+/// shipped in the app (Resources/example-*.heic, about 2.4 MB in total).
+enum ExamplePhotos {
+    /// Example pieces by name, with the brand they're seeded with, so a piece
+    /// the user added under the same name keeps its own photo.
+    private static let brands: [String: String] = [
+        "linen-shirt": "Arket", "camel-trousers": "COS", "white-sneakers": "Veja", "straw-hat": "Lack of Color",
+        "rose-slip-dress": "Reformation", "wool-coat": "Totême", "sage-knit": "& Other Stories",
+        "straight-jeans": "Agolde", "leather-loafers": "G.H. Bass", "ivory-midi-skirt": "Mango", "woven-tote": "Loewe",
+        "blush-blouse": "Sézane", "rose-midi-skirt": "Rouje", "ballet-flats": "Repetto", "denim-jacket": "Levi's",
+        "wide-leg-trousers": "Arket", "cable-knit": "Ware of the Dog", "cream-collar": "Wild One",
+        "rose-bandana": "Maxbone", "rain-coat": "Barbour", "blush-bandana": "Meowtique", "velvet-collar": "Wild One",
+        "sage-sweater": "Little Knits",
+    ]
+
+    static func slug(_ name: String) -> String {
+        name.lowercased().split { !$0.isLetter && !$0.isNumber }.joined(separator: "-")
+    }
+
+    static func matches(name: String, brand: String) -> Bool { brands[slug(name)] == brand }
+
+    static func load(name: String) async -> GarmentStudio.Rendered? {
+        guard let url = Bundle.main.url(forResource: "example-\(slug(name))", withExtension: "heic") else { return nil }
+        return await Task.detached(priority: .utility) {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let image = png(source, maxPixel: 900), let thumbnail = png(source, maxPixel: 480) else { return nil }
+            return GarmentStudio.Rendered(image: image, thumbnail: thumbnail)
+        }.value
+    }
+
+    private static func png(_ source: CGImageSource, maxPixel: Int) -> Data? {
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+                                        kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, cg, nil)
         return CGImageDestinationFinalize(dest) ? data as Data : nil
     }
 }
