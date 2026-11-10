@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// A look on the photo-real mannequin. Shows a saved result instantly;
-/// otherwise lays the real product photos out as a flat lay, dresses the
-/// mannequin after a short pause, and fades the result in. Shoes, hats and
-/// bags (which try-on can't put on) sit beside it as small photos.
+/// A look on the photo-real mannequin (or the dog or cat model). Shows a saved
+/// result instantly; otherwise lays the real product photos out as a flat lay,
+/// dresses the model after a short pause, and fades the result in. Hats, shoes
+/// and bags are worn too: each is dressed once and then layered on instantly.
 struct PhotoMannequin: View {
     let garments: [Garment]
+    /// Who wears it; defaults to the pieces' owner.
+    var kind: WearerKind? = nil
     var height: CGFloat = 380
     /// Start dressing on its own (e.g. only for the focused card).
     var autoDress = true
@@ -20,14 +22,19 @@ struct PhotoMannequin: View {
     @State private var working = false
     @State private var shimmer = false
 
-    static func canShow(_ kind: WearerKind) -> Bool { !kind.isPet && TryOnConfig.isReady }
+    static func canShow(_ kind: WearerKind) -> Bool { TryOnConfig.isReady }
 
-    private var wearable: [Garment] { garments.filter { TryOnService.supports($0.category) } }
-    private var extras: [Garment] { garments.filter { !TryOnService.supports($0.category) } }
+    private var who: WearerKind { kind ?? garments.first?.wearer?.kind ?? .woman }
+    private var base: TryOnService.Base { .photo(for: who) }
+    private var wearable: [Garment] {
+        garments.filter { who.isPet ? TryOnService.isPetWear($0.category) : TryOnService.supports($0.category) }
+    }
+    private var extras: [Garment] { garments.filter { g in !wearable.contains { $0.id == g.id } } }
 
-    /// One hat, one pair of shoes and one bag go on the mannequin itself.
+    /// One hat, one pair of shoes and one bag are worn by the mannequin.
     private var placed: [Garment] {
-        [GarmentCategory.hat, .shoes, .bag].compactMap { c in extras.first { $0.category == c && $0.thumbnailData != nil } }
+        guard !who.isPet else { return [] }
+        return [GarmentCategory.hat, .shoes, .bag].compactMap { c in extras.first { $0.category == c } }
     }
     /// Anything else (a second bag, say) still sits beside it.
     private var unplaced: [Garment] { extras.filter { g in !placed.contains { $0.id == g.id } } }
@@ -37,7 +44,7 @@ struct PhotoMannequin: View {
         wearable.map { "\($0.id.uuidString)-\($0.thumbnailData?.count ?? 0)" }.sorted().joined(separator: ",")
     }
     private var width: CGFloat { height * 2 / 3 }
-    private static let bare = TryOnService.image(for: .mannequin)
+
     private var corner: CGFloat { min(26, height * 0.08) }
 
     var body: some View {
@@ -48,13 +55,13 @@ struct PhotoMannequin: View {
                         .resizable()
                         .scaledToFill()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                } else if garments.isEmpty, let bare = Self.bare {
+                } else if garments.isEmpty, let bare = TryOnService.image(for: base) {
                     Image(uiImage: bare).resizable().scaledToFill()
                 } else {
                     FlatLay(garments: garments, height: height)
                         .overlay(alignment: .bottom) {
                             if working {
-                                Label("Dressing the mannequin", systemImage: "sparkles")
+                                Label(who.isPet ? "Dressing up" : "Dressing the mannequin", systemImage: "sparkles")
                                     .font(.system(size: 11, weight: .semibold))
                                     .padding(.horizontal, 12).padding(.vertical, 7)
                                     .background(.ultraThinMaterial, in: Capsule())
@@ -87,9 +94,9 @@ struct PhotoMannequin: View {
                     .transition(.opacity)
             }
 
-            if dressed != nil, !unplaced.isEmpty, height >= 300 {
+            if dressed != nil, !(styled != nil ? unplaced : extras).isEmpty, height >= 300 {
                 VStack(spacing: 6) {
-                    ForEach(unplaced) { g in
+                    ForEach(styled != nil ? unplaced : extras) { g in
                         GarmentImage(garment: g)
                             .padding(6)
                             .frame(width: 46, height: 46)
@@ -120,10 +127,10 @@ struct PhotoMannequin: View {
         let pieces = await TryOnService.pieces(for: wearable)
         guard !pieces.isEmpty, !Task.isCancelled else { if pieces.isEmpty { dressed = nil }; return }
         // 1. The full AI dressing, if this exact outfit was made before.
-        if let exact = await TryOnService.cached(pieces, on: .mannequin) { dressed = exact; return }
+        if let exact = await TryOnService.cached(pieces, on: base) { dressed = exact; return }
         // 2. Pieces seen before combine on the phone, instantly.
         let combinable = TryOnService.canCombine(pieces)
-        if combinable, let quick = await TryOnService.quickCached(pieces, on: .mannequin) {
+        if combinable, let quick = await TryOnService.quickCached(pieces, on: base) {
             dressed = quick
             if !refine { return }
         } else {
@@ -135,26 +142,35 @@ struct PhotoMannequin: View {
         working = true
         defer { working = false }
         // 3. New pieces are dressed once each, together, then combined.
-        if dressed == nil, combinable, let quick = try? await TryOnService.quickDress(pieces, on: .mannequin), !Task.isCancelled {
+        if dressed == nil, combinable, let quick = try? await TryOnService.quickDress(pieces, on: base), !Task.isCancelled {
             dressed = quick
         }
         // 4. Coats and layered outfits, and saved looks, get the full AI dressing.
         if (!combinable || refine), pieces.count > 1, !Task.isCancelled,
-           let exact = try? await TryOnService.dress(pieces, on: .mannequin), !Task.isCancelled {
+           let exact = try? await TryOnService.dress(pieces, on: base), !Task.isCancelled {
             dressed = exact
         }
     }
 
-    /// Places the hat, shoes and bag photos on the dressed mannequin, off the main thread.
+    /// Puts the hat, shoes and bag on the dressed mannequin. Each accessory is
+    /// dressed on the bare mannequin once (or comes ready-made for the
+    /// examples), then layered onto any outfit instantly.
     private func accessorize() async {
-        guard let dressed, let base = dressed.cgImage, !placed.isEmpty else { styled = nil; return }
-        func cut(_ c: GarmentCategory) -> Data? { placed.first { $0.category == c }?.thumbnailData }
-        let hat = cut(.hat), shoes = cut(.shoes), bag = cut(.bag)
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            func decode(_ data: Data?) -> CGImage? { data.flatMap(UIImage.init(data:))?.cgImage }
-            return MannequinAccessories.place(on: base, hat: decode(hat), shoes: decode(shoes), bag: decode(bag))
-                .map { UIImage(cgImage: $0) }
-        }.value
+        guard let dressed, !placed.isEmpty else { styled = nil; return }
+        let pieces = await TryOnService.pieces(for: placed)
+        let categories = placed.map(\.category)
+        var layers: [(Data, GarmentCategory)] = []
+        for (piece, category) in zip(pieces, categories) {
+            if let hit = TryOnService.accessoryCached(piece) {
+                layers.append((hit, category))
+            } else if autoDress, let made = try? await TryOnService.accessoryLayer(piece) {
+                layers.append((made, category))
+            }
+            guard !Task.isCancelled else { return }
+        }
+        guard !layers.isEmpty else { styled = nil; return }
+        let ready = layers
+        let image = await Task.detached(priority: .userInitiated) { TryOnService.accessorize(dressed, with: ready) }.value
         guard !Task.isCancelled else { return }
         styled = image
     }

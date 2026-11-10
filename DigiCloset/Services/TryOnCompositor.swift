@@ -9,7 +9,9 @@ import Foundation
 enum TryOnCompositor {
     private static let context = CIContext(options: [.workingColorSpace: NSNull()])
 
-    static func compose(base: CGImage, layers: [CGImage]) -> CGImage? {
+    /// `human`: a top over a bottom gets a clean hem line. Pets: each piece is
+    /// kept as its single biggest shape (sweater, collar, bandana).
+    static func compose(base: CGImage, layers: [CGImage], human: Bool = true) -> CGImage? {
         let w = min(base.width, 864), h = Int((Double(w) * Double(base.height) / Double(base.width)).rounded())
         let rect = CGRect(x: 0, y: 0, width: w, height: h)
         func scaled(_ image: CGImage) -> CIImage {
@@ -19,7 +21,8 @@ enum TryOnCompositor {
         guard let baseSmall = pixels(base, mw, mh(w, h)) else { return nil }
         var current = baseCI
         for (index, layer) in layers.enumerated() {
-            guard let small = pixels(layer, mw, mh(w, h)), let mask = mask(baseSmall, small, mw, mh(w, h), upper: index > 0) else { continue }
+            guard let small = pixels(layer, mw, mh(w, h)),
+                  let mask = mask(baseSmall, small, mw, mh(w, h), upper: human && index > 0, single: !human) else { continue }
             let maskCI = CIImage(cgImage: mask)
                 .transformed(by: .init(scaleX: CGFloat(w) / CGFloat(mw), y: CGFloat(h) / CGFloat(mh(w, h))))
                 .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 2]).cropped(to: rect)
@@ -27,6 +30,27 @@ enum TryOnCompositor {
                 kCIInputBackgroundImageKey: current, kCIInputMaskImageKey: maskCI])
         }
         return context.createCGImage(current, from: rect)
+    }
+
+    /// Lays one accessory over a finished outfit. `layer` is the bare base
+    /// wearing only the accessory; just the part inside `region` (fractions,
+    /// measured from the top-left) that differs from the bare base is used.
+    /// `skipBareSkin`: leave out the mannequin's own white body (a bag's
+    /// carrying hand shouldn't cover the outfit's sleeve).
+    static func overlay(base: CGImage, outfit: CGImage, layer: CGImage, region: CGRect, skipBareSkin: Bool = false) -> CGImage? {
+        let w = outfit.width, h = outfit.height
+        let rect = CGRect(x: 0, y: 0, width: w, height: h)
+        let sh = mh(base.width, base.height)
+        guard let a = pixels(base, mw, sh), let b = pixels(layer, mw, sh),
+              let mask = mask(a, b, mw, sh, upper: false, single: true, region: region, skipWhite: skipBareSkin) else { return outfit }
+        let maskCI = CIImage(cgImage: mask)
+            .transformed(by: .init(scaleX: CGFloat(w) / CGFloat(mw), y: CGFloat(h) / CGFloat(sh)))
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 1.5]).cropped(to: rect)
+        let layerCI = CIImage(cgImage: layer)
+            .transformed(by: .init(scaleX: CGFloat(w) / CGFloat(layer.width), y: CGFloat(h) / CGFloat(layer.height)))
+        let out = layerCI.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: CIImage(cgImage: outfit), kCIInputMaskImageKey: maskCI])
+        return context.createCGImage(out, from: rect)
     }
 
     private static let mw = 216
@@ -44,11 +68,18 @@ enum TryOnCompositor {
     /// Changed pixels, widened a little, with every enclosed hole filled:
     /// a cream sweater over a white vest barely "changes" in the middle, but
     /// its outline against the backdrop does, so the inside is filled in.
-    private static func mask(_ a: [UInt8], _ b: [UInt8], _ w: Int, _ h: Int, upper: Bool) -> CGImage? {
+    private static func mask(_ a: [UInt8], _ b: [UInt8], _ w: Int, _ h: Int, upper: Bool,
+                             single: Bool = false, region: CGRect? = nil, skipWhite: Bool = false) -> CGImage? {
         var on = [Bool](repeating: false, count: w * h)
         for i in 0..<(w * h) {
             let d = max(abs(Int(a[i * 4]) - Int(b[i * 4])), abs(Int(a[i * 4 + 1]) - Int(b[i * 4 + 1])), abs(Int(a[i * 4 + 2]) - Int(b[i * 4 + 2])))
             on[i] = d > 26
+        }
+        if let region {
+            // Rows are stored top-down, matching the region's top-left origin.
+            let x0 = Int(region.minX * Double(w)), x1 = Int(region.maxX * Double(w))
+            let y0 = Int(region.minY * Double(h)), y1 = Int(region.maxY * Double(h))
+            for y in 0..<h { for x in 0..<w where x < x0 || x >= x1 || y < y0 || y >= y1 { on[y * w + x] = false } }
         }
         on = spread(on, w, h, grow: true, times: 2)
         // Flood the outside from the borders; whatever isn't reached is the piece.
@@ -66,7 +97,13 @@ enum TryOnCompositor {
             if y < h - 1 { stack.append(i + w) }
         }
         var solid = outside.map { !$0 }
-        if upper { solid = columnSolid(largest(solid, w, h), w, h) }
+        if upper { solid = columnSolid(largest(solid, w, h), w, h) } else if single { solid = largest(solid, w, h) }
+        if skipWhite {
+            for i in 0..<(w * h) where solid[i] {
+                let r = Int(b[i * 4]), g = Int(b[i * 4 + 1]), bl = Int(b[i * 4 + 2])
+                if min(r, g, bl) > 196 && max(r, g, bl) - min(r, g, bl) < 18 { solid[i] = false }
+            }
+        }
         solid = spread(solid, w, h, grow: false, times: 2)
         var gray = solid.map { $0 ? UInt8(255) : 0 }
         guard let c = CGContext(data: &gray, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,

@@ -2,6 +2,9 @@ import SwiftData
 import SwiftUI
 
 struct RunwayView: View {
+    /// Shown full screen from Today's "See all"; a close button replaces your avatar.
+    var onClose: (() -> Void)? = nil
+
     enum Mode: String, CaseIterable { case looks = "Looks", sets = "Matching sets" }
 
     @Query(sort: \Wearer.sortIndex) private var wearers: [Wearer]
@@ -78,12 +81,24 @@ struct RunwayView: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 6) {
-                Eyebrow(greeting)
-                Text("Try the Look.")
+                Eyebrow(onClose == nil ? greeting : "Saved")
+                Text(onClose == nil ? "Try the Look." : "Your looks")
                     .font(Theme.display(40))
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 46, height: 46)
+                        .background(Theme.card, in: Circle())
+                        .overlay(Circle().strokeBorder(Theme.hairline))
+                }
+                .buttonStyle(PressableStyle())
+                .foregroundStyle(Theme.ink)
+                .accessibilityLabel("Close")
+            } else {
             Button { showStyle = true } label: {
                 Group {
                     if let me = wearers.first(where: \.isSelf) {
@@ -97,6 +112,7 @@ struct RunwayView: View {
             .buttonStyle(PressableStyle())
             .foregroundStyle(Theme.ink)
             .accessibilityLabel("Your style")
+            }
             Menu {
                 Button("Add clothes", systemImage: "camera") { showAdd = true }
                 Button("Create a look", systemImage: "sparkles") { showBuilder = true }

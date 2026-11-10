@@ -56,7 +56,16 @@ struct ShuffleView: View {
                         .padding(.top, 8)
                 }
             }
-            .onAppear { if outfit == nil { shuffle() } }
+            .onAppear {
+                if let pending = UserDefaults.standard.string(forKey: "shuffle.pendingPartner") {
+                    UserDefaults.standard.removeObject(forKey: "shuffle.pendingPartner")
+                    if let id = UUID(uuidString: pending), wearers.contains(where: { $0.id == id }) {
+                        ownerID = wearers.first(where: \.isSelf)?.id
+                        partnerID = id
+                    }
+                }
+                if outfit == nil { shuffle() }
+            }
             .onChange(of: ownerID) { locked = []; shuffle() }
             .onChange(of: partnerID) { shuffle(keepOwner: true) }
             .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in shuffle() }
@@ -128,15 +137,23 @@ struct ShuffleView: View {
     private var stage: some View {
         if let owner, let outfit {
             VStack(spacing: 12) {
-                HStack(alignment: .bottom, spacing: -10) {
-                    if partner == nil, PhotoMannequin.canShow(owner.kind) {
-                        PhotoMannequin(garments: outfit.garments, height: wearers.count > 1 ? 290 : 330)
+                HStack(alignment: .bottom, spacing: partner == nil ? -10 : 10) {
+                    if PhotoMannequin.canShow(owner.kind) {
+                        // Side by side when matching: both on their photo models.
+                        PhotoMannequin(garments: outfit.garments, kind: owner.kind,
+                                       height: partner != nil ? 236 : (wearers.count > 1 ? 290 : 330))
                     } else {
                         StandingFigure(kind: owner.kind, layers: outfit.layers, height: 320, solo: partner == nil, fit: owner.fit)
                     }
                     if let partner, let partnerOutfit {
-                        StandingFigure(kind: partner.kind, layers: partnerOutfit.layers, height: 320, solo: false, fit: partner.fit)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                        Group {
+                            if PhotoMannequin.canShow(partner.kind) {
+                                PhotoMannequin(garments: partnerOutfit.garments, kind: partner.kind, height: 236)
+                            } else {
+                                StandingFigure(kind: partner.kind, layers: partnerOutfit.layers, height: 320, solo: false, fit: partner.fit)
+                            }
+                        }
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
                 .frame(maxWidth: .infinity)

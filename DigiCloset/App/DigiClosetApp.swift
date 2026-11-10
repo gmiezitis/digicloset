@@ -41,17 +41,10 @@ struct RootView: View {
 }
 
 enum AppTab: Hashable {
-    case runway, shuffle, closet, planner
+    case today, shuffle, closet, planner
 
-    /// Open where the user spends their time.
-    static func start(for goal: AppGoal) -> AppTab {
-        switch goal {
-        case .discover: .shuffle
-        case .plan: .planner
-        case .organize: .closet
-        case .matchFriends, .dressPets: .runway
-        }
-    }
+    /// Everyone starts on Today: it answers "what do I wear?" and leads to the rest.
+    static func start(for goal: AppGoal) -> AppTab { .today }
 }
 
 struct MainTabs: View {
@@ -62,7 +55,7 @@ struct MainTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Looks", systemImage: "sparkles", value: AppTab.runway) { RunwayView() }
+            Tab("Today", systemImage: "sun.max", value: AppTab.today) { TodayView(openTab: { tab = $0 }) }
             Tab("Shuffle", systemImage: "shuffle", value: AppTab.shuffle) { ShuffleView() }
             Tab("Closet", systemImage: "hanger", value: AppTab.closet) { ClosetView() }
             Tab("Planner", systemImage: "calendar", value: AppTab.planner) { PlannerView() }

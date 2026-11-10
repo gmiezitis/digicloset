@@ -180,6 +180,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = DigiCloset;
 				INFOPLIST_KEY_NSCameraUsageDescription = "DigiCloset uses the camera to photograph your clothes.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "DigiCloset uses your approximate location to show today's weather and suggest what to wear.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "DigiCloset adds clothes from photos you choose.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -210,6 +211,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = DigiCloset;
 				INFOPLIST_KEY_NSCameraUsageDescription = "DigiCloset uses the camera to photograph your clothes.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "DigiCloset uses your approximate location to show today's weather and suggest what to wear.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "DigiCloset adds clothes from photos you choose.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
