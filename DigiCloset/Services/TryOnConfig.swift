@@ -14,6 +14,16 @@ enum TryOnConfig {
         return key
     }()
 
+    /// A random id for this install, sent to the worker so daily limits are per
+    /// phone rather than per Wi-Fi network. It identifies nothing else.
+    static let deviceID: String = {
+        let key = "tryonDeviceID"
+        if let saved = UserDefaults.standard.string(forKey: key) { return saved }
+        let made = UUID().uuidString
+        UserDefaults.standard.set(made, forKey: key)
+        return made
+    }()
+
     static var usesWorker: Bool { !workerURL.isEmpty && !appToken.isEmpty }
     static var isReady: Bool { usesWorker || devFalKey != nil }
 }

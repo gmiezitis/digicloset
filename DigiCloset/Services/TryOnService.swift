@@ -1,5 +1,6 @@
 import UIKit
 import CryptoKit
+import os
 
 /// Photo-real try-on with Kling (FASHN as fallback), through our backend or,
 /// in development, straight to fal.ai.
@@ -10,9 +11,13 @@ import CryptoKit
 enum TryOnService {
     enum Failure: LocalizedError {
         case notConfigured, unsupported, badImage, server(String)
+        /// The worker's daily limit: this phone's (`daily == false`) or the whole app's.
+        case limit(daily: Bool)
         var errorDescription: String? {
             switch self {
             case .notConfigured: "Try-on isn't connected yet."
+            case .limit(daily: false): "You've used today's try-ons. More tomorrow. Pieces already dressed stay saved."
+            case .limit(daily: true): "Try-on is very busy today. Please try again tomorrow."
             case .unsupported: "Try-on works with tops, sweaters, coats, dresses, trousers and skirts."
             case .badImage: "Couldn't read one of the photos."
             case .server(let message): message
@@ -204,6 +209,7 @@ enum TryOnService {
         guard var person = baseData(base) else { throw Failure.badImage }
         let ordered = pieces.sorted { $0.order < $1.order }
         var key = baseHash(base, person)
+        try checkRemaining(needed: uncachedSteps(ordered, from: key))
         for (index, piece) in ordered.enumerated() {
             progress?(index + 1, ordered.count)
             let stepKey = chainKey(key, [piece])
@@ -284,6 +290,7 @@ enum TryOnService {
         guard canCombine(pieces), let baseData = baseData(base) else { throw Failure.unsupported }
         let ordered = pieces.sorted { $0.order < $1.order }
         let baseKey = baseHash(base, baseData)
+        try checkRemaining(needed: ordered.filter { presetData($0, base) == nil && read(chainKey(baseKey, [$0])) == nil }.count)
         // New pieces are all fetched at the same time.
         let tasks = ordered.map { piece in
             Task { @MainActor in try await single(piece, baseData: baseData, baseKey: baseKey, base: base) }
@@ -341,10 +348,44 @@ enum TryOnService {
         return UIImage(cgImage: current)
     }
 
+    // MARK: Limits
+
+    /// Try-ons left today on this phone, from the worker's last answer (nil until known).
+    private static let remainingToday = OSAllocatedUnfairLock<Int?>(initialState: nil)
+
+    /// How many steps of a chained outfit aren't on disk yet, so would cost a try-on.
+    private static func uncachedSteps(_ ordered: [Piece], from start: String) -> Int {
+        var key = start, needed = 0
+        for piece in ordered {
+            key = chainKey(key, [piece])
+            if read(key) == nil { needed += 1 }
+        }
+        return needed
+    }
+
+    /// Stops before starting an outfit that today's limit can't finish, so no
+    /// try-ons are spent on a look that would stop halfway.
+    private static func checkRemaining(needed: Int) throws {
+        guard TryOnConfig.usesWorker, needed > 0, let left = remainingToday.withLock({ $0 }), left < needed else { return }
+        throw Failure.limit(daily: false)
+    }
+
     // MARK: Network
 
     /// Pet wear and accessories, through an image-editing model (fal.ai nano-banana).
     private static func editCall(base: Data, piece: Data, kind: String, on target: Base) async throws -> Data {
+        if TryOnConfig.usesWorker {
+            guard let endpoint = URL(string: TryOnConfig.workerURL)?.appending(path: "edit") else { throw Failure.notConfigured }
+            let json = try await post(endpoint, headers: workerHeaders, body: [
+                "base": base.base64EncodedString(),
+                "piece": piece.base64EncodedString(),
+                "kind": kind,
+                "target": target == .cat ? "cat" : target == .dog ? "dog" : "person",
+            ])
+            guard let link = json["image"] as? String else { throw Failure.server("Couldn't dress that piece. Please try again.") }
+            return try await download(link)
+        }
+        // Development only: straight to fal.ai with the key from Secrets.plist.
         guard let key = TryOnConfig.devFalKey else { throw Failure.notConfigured }
         let keep = "Keep everything else exactly the same: the same pose, position and size in the frame, the same camera, "
             + "crop, plain grey studio background, floor shadow and lighting. Photorealistic."
@@ -375,7 +416,7 @@ enum TryOnService {
 
     private static func viaWorker(person: Data, garment: Data, category: String) async throws -> Data {
         guard let endpoint = URL(string: TryOnConfig.workerURL)?.appending(path: "tryon") else { throw Failure.notConfigured }
-        let json = try await post(endpoint, headers: ["X-App-Token": TryOnConfig.appToken], body: [
+        let json = try await post(endpoint, headers: workerHeaders, body: [
             "person": person.base64EncodedString(),
             "garment": garment.base64EncodedString(),
             "category": category,
@@ -414,6 +455,10 @@ enum TryOnService {
         return try await URLSession.shared.data(from: url).0
     }
 
+    private static var workerHeaders: [String: String] {
+        ["X-App-Token": TryOnConfig.appToken, "X-Device-Id": TryOnConfig.deviceID]
+    }
+
     private static func post(_ url: URL, headers: [String: String], body: [String: Any]) async throws -> [String: Any] {
         var request = URLRequest(url: url, timeoutInterval: 120)
         request.httpMethod = "POST"
@@ -422,7 +467,12 @@ enum TryOnService {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        let status = (response as? HTTPURLResponse)?.statusCode
+        if let left = json["remaining"] as? Int { remainingToday.withLock { $0 = left } }
+        if status == 429, json["error"] as? String == "quota" {
+            throw Failure.limit(daily: json["scope"] as? String == "daily")
+        }
+        guard status == 200 else {
             throw Failure.server("Try-on failed (\((response as? HTTPURLResponse)?.statusCode ?? 0)). Please try again.")
         }
         return json
