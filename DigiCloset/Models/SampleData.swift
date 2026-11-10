@@ -115,4 +115,37 @@ enum SampleData {
 
         try? context.save()
     }
+
+    /// A new pet starts with a few real pieces (the bundled example photos), so
+    /// Shuffle and matching have something to work with right away.
+    @MainActor
+    static func starterWardrobe(for pet: Wearer, in context: ModelContext) {
+        let pieces: [(String, String, GarmentCategory, String)] = pet.kind == .cat
+            ? [("Sage sweater", "Little Knits", .sweater, "A9B79A"), ("Blush bandana", "Meowtique", .bandana, "E8C3BC"),
+               ("Velvet collar", "Wild One", .collar, "2A2C30")]
+            : [("Cable knit", "Ware of the Dog", .sweater, "B88A5A"), ("Rain coat", "Barbour", .sweater, "2E3B55"),
+               ("Rose bandana", "Maxbone", .bandana, "D9A3A0"), ("Cream collar", "Wild One", .collar, "EFE6D2")]
+        for (name, brand, category, hex) in pieces {
+            let garment = Garment(name: name, brand: brand, category: category, colorHex: hex, owner: pet)
+            context.insert(garment)
+            garment.wearer = pet
+        }
+        try? context.save()
+        // Fills in the real photos for these pieces.
+        Task { await GarmentStudio.fillMissing(in: context) }
+    }
+
+    /// Pets added before starter wardrobes existed get one, once. A pet whose
+    /// owner later empties the wardrobe on purpose isn't refilled.
+    @MainActor
+    static func stockEmptyPets(in context: ModelContext) {
+        let key = "starterWardrobe.stocked"
+        var stocked = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        let pets = ((try? context.fetch(FetchDescriptor<Wearer>())) ?? []).filter { $0.kind.isPet }
+        for pet in pets where !stocked.contains(pet.id.uuidString) {
+            if (pet.garments ?? []).isEmpty { starterWardrobe(for: pet, in: context) }
+            stocked.insert(pet.id.uuidString)
+        }
+        UserDefaults.standard.set(Array(stocked), forKey: key)
+    }
 }

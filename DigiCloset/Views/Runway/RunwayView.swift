@@ -163,7 +163,11 @@ struct RunwayView: View {
         } else {
             Carousel(items: visibleLooks, focused: $focusedLook, widthRatio: 0.56) { look, isFocused in
                 LookCard(look: look, isFocused: isFocused)
-                    .matchedTransitionSource(id: look.id, in: zoom)
+                    // Without a background and shape the zoom animates the card over
+                    // black, which shows as a dark frame around the mannequin.
+                    .matchedTransitionSource(id: look.id, in: zoom) { source in
+                        source.background(Theme.canvas).clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    }
             } onTapFocused: { openLook = $0 }
 
             if let look = visibleLooks.first(where: { $0.id == focusedLook }) ?? visibleLooks.first {

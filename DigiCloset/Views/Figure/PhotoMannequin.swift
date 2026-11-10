@@ -15,6 +15,8 @@ struct PhotoMannequin: View {
     var refine = false
 
     @State private var dressed: UIImage?
+    /// `dressed` with the hat, shoes and bag placed on it.
+    @State private var styled: UIImage?
     @State private var working = false
     @State private var shimmer = false
 
@@ -22,6 +24,14 @@ struct PhotoMannequin: View {
 
     private var wearable: [Garment] { garments.filter { TryOnService.supports($0.category) } }
     private var extras: [Garment] { garments.filter { !TryOnService.supports($0.category) } }
+
+    /// One hat, one pair of shoes and one bag go on the mannequin itself.
+    private var placed: [Garment] {
+        [GarmentCategory.hat, .shoes, .bag].compactMap { c in extras.first { $0.category == c && $0.thumbnailData != nil } }
+    }
+    /// Anything else (a second bag, say) still sits beside it.
+    private var unplaced: [Garment] { extras.filter { g in !placed.contains { $0.id == g.id } } }
+    private var accessoryKey: String { placed.map { "\($0.id.uuidString)-\($0.thumbnailData?.count ?? 0)" }.joined(separator: ",") }
     private var key: String {
         // Thumbnail size only: reading the full photo here would hit the disk on every redraw.
         wearable.map { "\($0.id.uuidString)-\($0.thumbnailData?.count ?? 0)" }.sorted().joined(separator: ",")
@@ -34,7 +44,7 @@ struct PhotoMannequin: View {
         ZStack(alignment: .bottomTrailing) {
             ZStack {
                 if let dressed {
-                    Image(uiImage: dressed)
+                    Image(uiImage: styled ?? dressed)
                         .resizable()
                         .scaledToFill()
                         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -77,9 +87,9 @@ struct PhotoMannequin: View {
                     .transition(.opacity)
             }
 
-            if dressed != nil, !extras.isEmpty, height >= 300 {
+            if dressed != nil, !unplaced.isEmpty, height >= 300 {
                 VStack(spacing: 6) {
-                    ForEach(extras) { g in
+                    ForEach(unplaced) { g in
                         GarmentImage(garment: g)
                             .padding(6)
                             .frame(width: 46, height: 46)
@@ -103,6 +113,7 @@ struct PhotoMannequin: View {
             }
         }
         .task(id: "\(key)|\(autoDress)") { await load() }
+        .task(id: "\(dressed?.hash ?? 0)|\(accessoryKey)") { await accessorize() }
     }
 
     private func load() async {
@@ -132,6 +143,20 @@ struct PhotoMannequin: View {
            let exact = try? await TryOnService.dress(pieces, on: .mannequin), !Task.isCancelled {
             dressed = exact
         }
+    }
+
+    /// Places the hat, shoes and bag photos on the dressed mannequin, off the main thread.
+    private func accessorize() async {
+        guard let dressed, let base = dressed.cgImage, !placed.isEmpty else { styled = nil; return }
+        func cut(_ c: GarmentCategory) -> Data? { placed.first { $0.category == c }?.thumbnailData }
+        let hat = cut(.hat), shoes = cut(.shoes), bag = cut(.bag)
+        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            func decode(_ data: Data?) -> CGImage? { data.flatMap(UIImage.init(data:))?.cgImage }
+            return MannequinAccessories.place(on: base, hat: decode(hat), shoes: decode(shoes), bag: decode(bag))
+                .map { UIImage(cgImage: $0) }
+        }.value
+        guard !Task.isCancelled else { return }
+        styled = image
     }
 
     private static var canShowAny: Bool { TryOnConfig.isReady }

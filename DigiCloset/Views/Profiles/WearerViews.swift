@@ -155,7 +155,9 @@ struct WearerEditor: View {
             wearer.kind = kind
             wearer.accentHex = accent
         } else {
-            context.insert(Wearer(name: trimmed, kind: kind, accentHex: accent, sortIndex: (wearers.map(\.sortIndex).max() ?? 0) + 1))
+            let added = Wearer(name: trimmed, kind: kind, accentHex: accent, sortIndex: (wearers.map(\.sortIndex).max() ?? 0) + 1)
+            context.insert(added)
+            if kind.isPet { SampleData.starterWardrobe(for: added, in: context) }
         }
         dismiss()
     }

@@ -69,6 +69,9 @@ struct MainTabs: View {
         }
         .tint(Theme.ink)
         // Pieces without a photo (examples, hand-added) get a studio shot.
-        .task { await GarmentStudio.fillMissing(in: context) }
+        .task {
+            SampleData.stockEmptyPets(in: context)
+            await GarmentStudio.fillMissing(in: context)
+        }
     }
 }
