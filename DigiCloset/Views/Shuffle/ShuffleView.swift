@@ -180,7 +180,7 @@ struct ShuffleView: View {
             .animation(.spring(duration: 0.55, bounce: 0.2), value: partnerOutfit?.id)
         } else {
             VStack(spacing: 14) {
-                StandingFigure(kind: owner?.kind ?? .woman, layers: [], height: 260).opacity(0.6)
+                PhotoMannequin(garments: [], kind: owner?.kind ?? .woman, height: 260)
                 Text(emptyMessage)
                     .font(.system(size: 15))
                     .foregroundStyle(Theme.muted)

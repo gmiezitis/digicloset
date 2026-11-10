@@ -295,7 +295,7 @@ struct SetCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            GroupFigure(looks: set.orderedLooks, height: 360)
+            LookFigure(looks: set.orderedLooks, height: 360)
                 .frame(height: 400, alignment: .bottom)
             VStack(spacing: 6) {
                 Text(set.name)
@@ -438,8 +438,7 @@ struct EmptyRunway: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            StandingFigure(kind: kind, layers: [], height: 260)
-                .opacity(0.7)
+            PhotoMannequin(garments: [], kind: kind, height: 260)
             Text(message)
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.muted)

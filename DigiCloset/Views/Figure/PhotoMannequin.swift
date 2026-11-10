@@ -210,17 +210,32 @@ struct FlatLay: View {
     }
 }
 
-/// One look as a photo mannequin (saved result or flat lay, never starting a
-/// new try-on); pets and matching sets keep the drawn figures.
+/// Saved looks (and matching sets) on their photo models, at the same quality
+/// as Today's look: each look is fully dressed and saved after the first time.
+/// A matching set fans out, one photo per person or pet.
 struct LookFigure: View {
     let looks: [Look]
     let height: CGFloat
 
+    private var shown: [Look] { looks.filter { PhotoMannequin.canShow($0.kind) } }
+
     var body: some View {
-        if looks.count == 1, let look = looks.first, PhotoMannequin.canShow(look.kind) {
-            PhotoMannequin(garments: look.items, height: height, autoDress: false)
-        } else {
+        if shown.isEmpty {
             GroupFigure(looks: looks, height: height)
+        } else if shown.count == 1, let look = shown.first {
+            PhotoMannequin(garments: look.items, kind: look.kind, height: height, refine: true)
+        } else {
+            let card = height * 0.9
+            let step = card * 0.32
+            ZStack(alignment: .bottomLeading) {
+                ForEach(Array(shown.prefix(3).enumerated()), id: \.element.id) { index, look in
+                    PhotoMannequin(garments: look.items, kind: look.kind, height: card, refine: true)
+                        .shadow(color: .black.opacity(0.14), radius: 8, x: -2, y: 3)
+                        .offset(x: CGFloat(index) * step, y: index.isMultiple(of: 2) ? 0 : -height * 0.05)
+                        .zIndex(Double(-index))
+                }
+            }
+            .frame(width: card * 2 / 3 + CGFloat(min(shown.count, 3) - 1) * step, height: height, alignment: .bottomLeading)
         }
     }
 }

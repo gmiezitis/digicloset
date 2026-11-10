@@ -33,7 +33,7 @@ struct PlannerView: View {
 
                     if dayEntries.isEmpty {
                         VStack(spacing: 14) {
-                            StandingFigure(kind: .woman, layers: [], height: 220).opacity(0.6)
+                            PhotoMannequin(garments: [], kind: .woman, height: 230)
                             Text("Nothing planned").font(Theme.display(20))
                             Button { showPicker = true } label: { PrimaryButtonLabel(title: "Plan a look", systemImage: "plus") }
                                 .buttonStyle(PressableStyle())
@@ -59,7 +59,9 @@ struct PlannerView: View {
                             Eyebrow("Coming up")
                             ForEach(upcoming) { entry in
                                 Button { withAnimation(.smooth) { selectedDay = entry.day } } label: {
-                                    HStack {
+                                    HStack(spacing: 12) {
+                                        LookFigure(looks: entry.looks, height: 64)
+                                            .frame(width: 64, height: 64)
                                         Text(entry.day.formatted(.dateTime.weekday(.abbreviated).day()))
                                             .font(.system(size: 13, weight: .semibold))
                                             .frame(width: 64, alignment: .leading)

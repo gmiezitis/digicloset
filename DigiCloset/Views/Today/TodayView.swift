@@ -287,12 +287,12 @@ struct TodayView: View {
                     ForEach(looks.prefix(10)) { look in
                         Button { openLook = look } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                LookFigure(looks: [look], height: 170)
-                                    .frame(width: 114, height: 170)
+                                LookFigure(looks: look.matchSet?.orderedLooks ?? [look], height: 170)
+                                    .frame(height: 170)
                                 Text(look.name.isEmpty ? "Untitled look" : look.name)
                                     .font(.system(size: 13, weight: .semibold))
                                     .lineLimit(1)
-                                    .frame(width: 114, alignment: .leading)
+                                    .frame(maxWidth: 150, alignment: .leading)
                             }
                         }
                         .buttonStyle(PressableStyle())
