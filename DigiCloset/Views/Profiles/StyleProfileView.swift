@@ -95,7 +95,7 @@ struct StyleProfileView: View {
                 Text(taste.events == 1 ? "1 signal" : "\(taste.events) signals").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
             }
             if topFamilies.isEmpty {
-                Text("Love or skip a few outfits in Shuffle and your taste shows up here.")
+                Text("Save or pass on a few outfits in Shuffle and your taste shows up here.")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.muted)
             } else {

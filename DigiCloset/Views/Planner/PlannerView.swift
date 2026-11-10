@@ -143,6 +143,18 @@ struct PlannedCard: View {
         }
         .buttonStyle(PressableStyle())
         .foregroundStyle(Theme.ink)
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                Button("Remove from day", systemImage: "calendar.badge.minus", role: .destructive, action: onRemove)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .foregroundStyle(Theme.muted)
+            }
+            .padding(8)
+            .accessibilityLabel("More")
+        }
         .contextMenu {
             Button("Remove from day", systemImage: "calendar.badge.minus", role: .destructive, action: onRemove)
         }

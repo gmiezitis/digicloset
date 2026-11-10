@@ -49,6 +49,17 @@ struct LookBuilderView: View {
                 }
             }
             .interactiveDismissDisabled(!picked.isEmpty)
+            .safeAreaInset(edge: .bottom) {
+                if !picked.isEmpty {
+                    Button(action: save) { PrimaryButtonLabel(title: "Save look", systemImage: "checkmark") }
+                        .buttonStyle(PressableStyle())
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth, value: picked.isEmpty)
             .onAppear { ownerID = ownerID ?? wearers.first?.id }
             .onChange(of: ownerID) {
                 picks = [:]

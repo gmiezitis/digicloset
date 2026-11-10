@@ -22,6 +22,8 @@ struct ShuffleView: View {
     @State private var diceAngle = 0.0
     @State private var addingCompanion = false
     @State private var addingClothes = false
+    /// The outfit just saved, so it stays on screen and can't be saved twice.
+    @State private var savedSignature: String?
 
     private var profile: UserProfile? { profiles.first }
     private var owner: Wearer? { wearers.first { $0.id == ownerID } ?? wearers.first(where: \.isSelf) ?? wearers.first }
@@ -128,7 +130,7 @@ struct ShuffleView: View {
             VStack(spacing: 12) {
                 HStack(alignment: .bottom, spacing: -10) {
                     if partner == nil, PhotoMannequin.canShow(owner.kind) {
-                        PhotoMannequin(garments: outfit.garments, height: 330)
+                        PhotoMannequin(garments: outfit.garments, height: wearers.count > 1 ? 290 : 330)
                     } else {
                         StandingFigure(kind: owner.kind, layers: outfit.layers, height: 320, solo: partner == nil, fit: owner.fit)
                     }
@@ -138,7 +140,7 @@ struct ShuffleView: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 336, alignment: .bottom)
+                .frame(height: wearers.count > 1 ? 296 : 336, alignment: .bottom)
 
                 VStack(spacing: 8) {
                     Text(outfit.suggestedName)
@@ -191,7 +193,7 @@ struct ShuffleView: View {
     private func board(_ outfit: Outfit) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Eyebrow("The pieces · tap to lock")
+                Eyebrow("Tap a piece to keep it next shuffle")
                 Spacer()
                 if !locked.isEmpty {
                     Button("Unlock all") { withAnimation(.smooth) { locked = [] } }
@@ -224,6 +226,8 @@ struct ShuffleView: View {
         }
     }
 
+    private var isSaved: Bool { outfit != nil && outfit?.signature == savedSignature }
+
     private var controls: some View {
         HStack(spacing: 26) {
             RoundControl(symbol: "xmark", size: 56, label: "Not for me") { skip() }
@@ -241,7 +245,7 @@ struct ShuffleView: View {
                 .accessibilityLabel("Shuffle")
                 Text("Shuffle").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.muted)
             }
-            RoundControl(symbol: "heart.fill", size: 56, label: "Save look") { love() }
+            RoundControl(symbol: isSaved ? "checkmark" : "heart.fill", size: 56, label: isSaved ? "Saved" : "Save look") { love() }
         }
         .disabled(outfit == nil)
         .opacity(outfit == nil ? 0.4 : 1)
@@ -279,7 +283,8 @@ struct ShuffleView: View {
     }
 
     private func love() {
-        guard let owner, let outfit else { return }
+        guard let owner, let outfit, !isSaved else { return }
+        savedSignature = outfit.signature
         let name = outfit.suggestedName
         let look = Look(name: name, owner: owner)
         context.insert(look)
@@ -304,7 +309,7 @@ struct ShuffleView: View {
             try? await Task.sleep(for: .seconds(1.6))
             withAnimation(.smooth) { toast = nil }
         }
-        shuffle()
+        // The saved outfit stays up to enjoy; Shuffle moves on when asked.
     }
 }
 

@@ -43,6 +43,15 @@ struct ClosetView: View {
                     Button { showAdd = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Add a piece")
                 }
+                if let current {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button(current.isSelf ? "Edit my profile" : "Edit \(current.name)", systemImage: "pencil") { editing = current }
+                            Button("Add a person or pet", systemImage: "person.badge.plus") { showNewWearer = true }
+                        } label: { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("More")
+                    }
+                }
             }
             .navigationDestination(for: Garment.self) { GarmentDetailView(garment: $0) }
             .sheet(isPresented: $showAdd) { AddGarmentView(preselectedOwner: current?.id) }
