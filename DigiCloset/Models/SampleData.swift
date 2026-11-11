@@ -116,6 +116,25 @@ enum SampleData {
         try? context.save()
     }
 
+    /// Deletes everyone, every piece, look and plan, so the app starts again at
+    /// onboarding. Saved try-on pictures stay on disk, so nothing is paid for twice.
+    static func eraseAll(in context: ModelContext) async {
+        // The profile first: that swaps the app to onboarding. The rest goes once
+        // the old screens have left, so nothing on screen reads a deleted piece.
+        try? context.delete(model: UserProfile.self)
+        try? context.save()
+        try? await Task.sleep(for: .seconds(1.2))
+        try? context.delete(model: PlanEntry.self)
+        try? context.delete(model: MatchSet.self)
+        try? context.delete(model: Look.self)
+        try? context.delete(model: Garment.self)
+        try? context.delete(model: Wearer.self)
+        try? context.save()
+        for key in ["starterWardrobe.stocked", "today.woreKey", "shuffle.pendingPartner"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
     /// Whether this wearer gets a starter wardrobe: pets and children.
     static func getsStarter(_ kind: WearerKind) -> Bool { kind.isPet || kind == .child }
 

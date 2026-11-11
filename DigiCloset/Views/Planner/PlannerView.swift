@@ -60,7 +60,7 @@ struct PlannerView: View {
                             ForEach(upcoming) { entry in
                                 Button { withAnimation(.smooth) { selectedDay = entry.day } } label: {
                                     HStack(spacing: 12) {
-                                        LookFigure(looks: entry.looks, height: 64)
+                                        LookFigure(looks: entry.looks, height: 64, autoDress: false)
                                             .frame(width: 64, height: 64)
                                         Text(entry.day.formatted(.dateTime.weekday(.abbreviated).day()))
                                             .font(.system(size: 13, weight: .semibold))
@@ -127,7 +127,7 @@ struct PlannedCard: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 16) {
-                LookFigure(looks: entry.looks, height: 170)
+                LookFigure(looks: entry.looks, height: 170, autoDress: false)
                     .frame(width: 150, height: 180, alignment: .bottom)
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(entry.matchSet != nil ? "Matching set" : (entry.look?.wearer?.name ?? "Look"))
@@ -212,7 +212,7 @@ struct PlanPicker: View {
     private func row(title: String, subtitle: String, looks: [Look], action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                LookFigure(looks: looks, height: 90)
+                LookFigure(looks: looks, height: 90, autoDress: false)
                     .frame(width: 90, height: 96, alignment: .bottom)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(Theme.display(19))

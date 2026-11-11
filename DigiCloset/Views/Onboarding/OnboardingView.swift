@@ -438,8 +438,9 @@ struct OnboardingView: View {
         Personalizer.seed(profile)
 
         if existingWearers.isEmpty && withExamples {
-            // Example friends and pets only for people who came to match; everyone else starts alone.
-            SampleData.seedIfNeeded(context, includeFamily: goals.contains(.matchFriends) || goals.contains(.dressPets))
+            // Example clothes for you only. Children, friends and pets are exactly
+            // the ones added on the people step, never example ones.
+            SampleData.seedIfNeeded(context, includeFamily: false)
         }
 
         let me = Personalizer.me(in: context) ?? {

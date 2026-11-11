@@ -17,12 +17,18 @@ struct PhotoMannequin: View {
     var delay: Duration = .milliseconds(500)
     /// Replace the instant combination with the full AI dressing (saved looks).
     var refine = false
+    /// With `autoDress` off: offer a button that dresses this outfit on request,
+    /// so try-ons are only spent when someone asks to see it on.
+    var dressOnTap = false
 
     @State private var dressed: UIImage?
     /// `dressed` with the hat, shoes and bag placed on it.
     @State private var styled: UIImage?
     @State private var working = false
     @State private var shimmer = false
+    /// Someone tapped "See it on".
+    @State private var requested = false
+    private var dresses: Bool { autoDress || requested }
 
     static func canShow(_ kind: WearerKind) -> Bool { TryOnConfig.isReady }
 
@@ -70,6 +76,17 @@ struct PhotoMannequin: View {
                                     .background(.ultraThinMaterial, in: Capsule())
                                     .padding(.bottom, 12)
                                     .transition(.opacity)
+                            } else if dressOnTap, !dresses, !wearable.isEmpty {
+                                Button { requested = true } label: {
+                                    Label("See it on", systemImage: "sparkles")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .padding(.horizontal, 16).padding(.vertical, 10)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                }
+                                .buttonStyle(PressableStyle())
+                                .foregroundStyle(Theme.ink)
+                                .padding(.bottom, 14)
+                                .transition(.opacity.combined(with: .scale(scale: 0.95)))
                             }
                         }
                 }
@@ -122,8 +139,10 @@ struct PhotoMannequin: View {
                 withAnimation(.linear(duration: 0)) { shimmer = false }
             }
         }
-        .task(id: "\(key)|\(autoDress)|\(base.rawValue)") { await load() }
-        .task(id: "\(dressed?.hash ?? 0)|\(accessoryKey)|\(base.rawValue)") { await accessorize() }
+        .task(id: "\(key)|\(dresses)|\(base.rawValue)") { await load() }
+        // A new outfit waits for its own tap.
+        .onChange(of: key) { requested = false }
+        .task(id: "\(dressed?.hash ?? 0)|\(accessoryKey)|\(base.rawValue)|\(dresses)") { await accessorize() }
     }
 
     private func load() async {
@@ -139,8 +158,8 @@ struct PhotoMannequin: View {
         } else {
             dressed = nil
         }
-        guard autoDress, PhotoMannequin.canShowAny, !Task.isCancelled else { return }
-        try? await Task.sleep(for: delay)
+        guard dresses, PhotoMannequin.canShowAny, !Task.isCancelled else { return }
+        if !requested { try? await Task.sleep(for: delay) }
         guard !Task.isCancelled else { return }
         working = true
         defer { working = false }
@@ -166,7 +185,7 @@ struct PhotoMannequin: View {
         for (piece, category) in zip(pieces, categories) {
             if let hit = TryOnService.accessoryCached(piece, on: base) {
                 layers.append((hit, category))
-            } else if autoDress, let made = try? await TryOnService.accessoryLayer(piece, on: base) {
+            } else if dresses, let made = try? await TryOnService.accessoryLayer(piece, on: base) {
                 layers.append((made, category))
             }
             guard !Task.isCancelled else { return }
@@ -219,6 +238,8 @@ struct FlatLay: View {
 struct LookFigure: View {
     let looks: [Look]
     let height: CGFloat
+    /// Off for small previews: show saved dressings only, never start a new one.
+    var autoDress = true
 
     private var shown: [Look] { looks.filter { PhotoMannequin.canShow($0.kind) } }
 
@@ -226,7 +247,7 @@ struct LookFigure: View {
         if shown.isEmpty {
             GroupFigure(looks: looks, height: height)
         } else if shown.count == 1, let look = shown.first {
-            PhotoMannequin(garments: look.items, kind: look.kind, height: height, refine: true)
+            PhotoMannequin(garments: look.items, kind: look.kind, height: height, autoDress: autoDress, refine: true)
         } else {
             // Up to three fan out large; a bigger family (up to six) shrinks to fit
             // in about the same width. Big sets use the cheaper per-piece dressing
@@ -238,7 +259,7 @@ struct LookFigure: View {
             let step = card * (big ? 0.26 : 0.32)
             ZStack(alignment: .bottomLeading) {
                 ForEach(Array(shown.prefix(count).enumerated()), id: \.element.id) { index, look in
-                    PhotoMannequin(garments: look.items, kind: look.kind, wearer: look.wearer, height: card, refine: !big)
+                    PhotoMannequin(garments: look.items, kind: look.kind, wearer: look.wearer, height: card, autoDress: autoDress, refine: !big)
                         .shadow(color: .black.opacity(0.14), radius: 8, x: -2, y: 3)
                         .offset(x: CGFloat(index) * step, y: index.isMultiple(of: 2) ? 0 : -card * 0.05)
                         .zIndex(Double(-index))

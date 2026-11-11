@@ -9,6 +9,7 @@ struct StyleProfileView: View {
     @Bindable var profile: UserProfile
     @Query(sort: \Wearer.sortIndex) private var wearers: [Wearer]
     @State private var confirmReset = false
+    @State private var confirmStartOver = false
 
     private var me: Wearer? { wearers.first(where: \.isSelf) ?? wearers.first { !$0.kind.isPet } }
     private var taste: Taste { profile.taste }
@@ -187,11 +188,19 @@ struct StyleProfileView: View {
     private var footer: some View {
         VStack(spacing: 12) {
             Button("Reset what it learned", role: .destructive) { confirmReset = true }
-            Button("Replay onboarding") {
-                dismiss()
-                profile.onboardedAt = nil
-            }
-            .foregroundStyle(Theme.muted)
+            Button("Start over", role: .destructive) { confirmStartOver = true }
+                .confirmationDialog("Start DigiCloset over?", isPresented: $confirmStartOver, titleVisibility: .visible) {
+                    Button("Delete everything and start over", role: .destructive) {
+                        dismiss()
+                        let context = context
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(450))
+                            await SampleData.eraseAll(in: context)
+                        }
+                    }
+                } message: {
+                    Text("Removes everyone and everything from this phone and shows the welcome again. Your subscription stays.")
+                }
         }
         .font(.system(size: 14, weight: .medium))
         .frame(maxWidth: .infinity)

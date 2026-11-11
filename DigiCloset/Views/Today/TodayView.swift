@@ -16,6 +16,8 @@ struct TodayView: View {
 
     @State private var weather = WeatherService.shared
     @State private var suggestion: Outfit?
+    /// Today's look as changed by hand, if it was.
+    @State private var custom: [Garment]?
     @State private var openLook: Look?
     @State private var planDay: Date?
     @State private var showAdd = false
@@ -66,7 +68,7 @@ struct TodayView: View {
                 weather.refresh(metric: profile?.usesMetric ?? true)
                 if suggestion == nil { suggest() }
             }
-            .onChange(of: weather.now) { if plannedToday == nil { suggest() } }
+            .onChange(of: weather.now) { if plannedToday == nil && custom == nil { suggest() } }
             .onChange(of: myCloset.count) { if suggestion == nil { suggest() } }
         }
     }
@@ -152,11 +154,23 @@ struct TodayView: View {
 
     // MARK: Today's look
 
-    private var heroGarments: [Garment] { plannedToday?.items ?? suggestion?.garments ?? [] }
+    private var heroGarments: [Garment] { custom ?? plannedToday?.items ?? suggestion?.garments ?? [] }
+    private var showsPlanned: Bool { custom == nil && plannedToday != nil }
+
+    private var heroName: String {
+        if custom == nil, let plannedToday { return plannedToday.name }
+        if custom == nil, let suggestion { return suggestion.suggestedName }
+        // Named after the main pieces first, then shoes and accessories.
+        let order: [GarmentCategory] = [.dress, .top, .sweater, .outerwear, .bottom, .skirt, .shoes, .bag, .hat]
+        let main = heroGarments.sorted { (order.firstIndex(of: $0.category) ?? 99) < (order.firstIndex(of: $1.category) ?? 99) }
+        let names = main.map(\.colorHex).uniqued().prefix(3).map { ColorScience.name($0) }.uniqued().prefix(2)
+        return names.isEmpty ? "Your look" : names.joined(separator: " & ")
+    }
     private var wornToday: Bool { woreKey == todayKey }
     private var todayKey: String { today.formatted(.iso8601.year().month().day()) }
 
     private var reason: String {
+        if custom != nil { return wornToday ? "You're wearing this today" : "Put together by you" }
         if plannedToday != nil { return wornToday ? "You're wearing this today" : "Planned for today" }
         guard let now = weather.now else { return "Picked from what you love" }
         if now.highCelsius < 12 { return "A warm layer for \(now.high)°" + (now.isWet ? " and rain" : "") }
@@ -178,7 +192,7 @@ struct TodayView: View {
                     .padding(.horizontal, 40)
             }
             .frame(maxWidth: .infinity)
-        } else if heroGarments.isEmpty {
+        } else if heroGarments.isEmpty && custom == nil {
             VStack(spacing: 10) {
                 Text("Add a top and trousers, a skirt or a dress to get today's look.")
                     .font(.system(size: 14)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
@@ -190,21 +204,19 @@ struct TodayView: View {
             .padding(.vertical, 30)
         } else {
             VStack(spacing: 14) {
-                Button {
-                    if let plannedToday { openLook = plannedToday }
-                } label: {
-                    PhotoMannequin(garments: heroGarments, kind: me?.kind, height: 380, refine: plannedToday != nil)
-                        .id(heroGarments.map(\.id))
-                        .transition(.opacity)
-                }
-                .buttonStyle(PressableStyle())
+                // Shows a ready-made or saved dressing for free; anything new waits
+                // for "See it on", so browsing outfits never spends try-ons.
+                PhotoMannequin(garments: heroGarments, kind: me?.kind, height: 380,
+                               autoDress: false, refine: showsPlanned, dressOnTap: true)
+                    .transition(.opacity)
+                    .onTapGesture { if showsPlanned, let plannedToday { openLook = plannedToday } }
 
                 VStack(spacing: 4) {
                     Eyebrow("Today's look")
-                    Text(plannedToday?.name ?? suggestion?.suggestedName ?? "")
+                    Text(heroName)
                         .font(Theme.display(26))
                         .contentTransition(.opacity)
-                    Label(reason, systemImage: plannedToday != nil ? "calendar" : "sparkles")
+                    Label(reason, systemImage: custom != nil ? "hand.point.up" : plannedToday != nil ? "calendar" : "sparkles")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.muted)
                 }
@@ -215,14 +227,17 @@ struct TodayView: View {
                     }
                     .disabled(wornToday)
                     Button {
-                        if plannedToday != nil { openTab(.shuffle) } else { withAnimation(.smooth) { suggest() } }
+                        if showsPlanned { openTab(.shuffle) } else { withAnimation(.smooth) { custom = nil; suggest() } }
                     } label: {
-                        PrimaryButtonLabel(title: plannedToday != nil ? "Shuffle" : "Another", systemImage: "shuffle", filled: false)
+                        PrimaryButtonLabel(title: showsPlanned ? "Shuffle" : "Another", systemImage: "shuffle", filled: false)
                     }
                 }
                 .buttonStyle(PressableStyle())
                 .padding(.horizontal, 20)
                 .sensoryFeedback(.success, trigger: wornToday)
+
+                OutfitComposer(closet: myCloset, outfit: Binding(get: { heroGarments }, set: { custom = $0 }))
+                    .padding(.top, 4)
             }
             .frame(maxWidth: .infinity)
             .animation(.smooth, value: heroGarments.map(\.id))
@@ -309,7 +324,7 @@ struct TodayView: View {
                     ForEach(recentLooks.prefix(10)) { look in
                         Button { openLook = look } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                LookFigure(looks: look.matchSet?.orderedLooks ?? [look], height: 170)
+                                LookFigure(looks: look.matchSet?.orderedLooks ?? [look], height: 170, autoDress: false)
                                     .frame(height: 170)
                                 Text(look.name.isEmpty ? "Untitled look" : look.name)
                                     .font(.system(size: 13, weight: .semibold))
@@ -376,12 +391,12 @@ struct TodayView: View {
 
     private func wearThis() {
         guard !wornToday, let me else { return }
-        var look = plannedToday
-        if look == nil, let suggestion {
-            let new = Look(name: suggestion.suggestedName, owner: me)
+        var look = showsPlanned ? plannedToday : nil
+        if look == nil, !heroGarments.isEmpty {
+            let new = Look(name: heroName, owner: me)
             context.insert(new)
             new.wearer = me
-            new.garments = suggestion.garments
+            new.garments = heroGarments
             let entry = PlanEntry(day: today)
             context.insert(entry)
             entry.look = new
