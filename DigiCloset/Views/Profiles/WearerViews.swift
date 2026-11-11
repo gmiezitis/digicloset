@@ -73,7 +73,7 @@ struct WearerEditor: View {
                 VStack(alignment: .leading, spacing: 26) {
                     HStack {
                         Spacer()
-                        StandingFigure(kind: kind, layers: [FigureLayer(id: UUID(), category: kind.isPet ? .sweater : .top, colorHex: accent)], height: 230)
+                        MannequinPhoto(base: .photo(kind: kind, age: age), height: kind.isPet ? 180 : 240)
                             .frame(height: 240, alignment: .bottom)
                             .animation(.spring(duration: 0.5), value: kind)
                         Spacer()

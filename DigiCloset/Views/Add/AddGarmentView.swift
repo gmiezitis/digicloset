@@ -134,7 +134,7 @@ struct AddGarmentView: View {
                 if let cutout = item.cutout {
                     HStack(spacing: 6) {
                         if item.state == .ready, let output = item.output, !queue.forPet,
-                           TryOnConfig.isReady, TryOnService.supports(item.category) {
+                           TryOnConfig.isReady, TryOnService.supports(item.category) || TryOnService.isAccessory(item.category) {
                             MannequinPreview(cutout: output.cutout, category: item.category, base: .photo(for: owner))
                                 .transition(.opacity.combined(with: .move(edge: .leading)))
                         } else if item.state == .ready, let owner {
@@ -683,8 +683,17 @@ private struct MannequinPreview: View {
             let data = cutout, category = category
             guard let piece = await Task.detached(priority: .userInitiated, operation: { TryOnService.piece(data, category: category) }).value
             else { failed = true; return }
-            if let hit = await TryOnService.cached([piece], on: base) { result = hit; return }
-            do { result = try await TryOnService.dress([piece], on: base) } catch { failed = true }
+            do {
+                if TryOnService.isAccessory(category) {
+                    // Hats, shoes and bags go on through the image-editing model.
+                    let made = try await TryOnService.accessoryLayer(piece, on: base)
+                    result = UIImage(data: made)
+                } else if let hit = await TryOnService.cached([piece], on: base) {
+                    result = hit
+                } else {
+                    result = try await TryOnService.dress([piece], on: base)
+                }
+            } catch { failed = true }
         }
         .fullScreenCover(isPresented: $expanded) {
             ZStack(alignment: .topTrailing) {

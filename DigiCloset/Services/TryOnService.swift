@@ -56,15 +56,19 @@ enum TryOnService {
 
         /// The photo model for someone: shaped like them, or sized by a child's age.
         static func photo(for wearer: Wearer?, kind: WearerKind? = nil) -> Base {
-            switch kind ?? wearer?.kind ?? .woman {
+            photo(kind: kind ?? wearer?.kind ?? .woman, shape: wearer?.bodyShape, age: wearer?.age ?? 0)
+        }
+
+        /// The same, before there is a Wearer (onboarding, adding someone).
+        static func photo(kind: WearerKind, shape: BodyShape? = nil, age: Int = 0) -> Base {
+            switch kind {
             case .dog: return .dog
             case .cat: return .cat
             case .man: return .man
             case .child:
-                let age = wearer?.age ?? 0
                 return age == 0 ? .child6 : age <= 3 ? .child2 : age <= 7 ? .child6 : age <= 11 ? .child10 : .child14
             case .woman:
-                switch wearer?.bodyShape {
+                switch shape {
                 case .hourglass: return .hourglass
                 case .pear: return .pear
                 case .apple: return .apple
@@ -304,6 +308,15 @@ enum TryOnService {
     /// tryon-<piece>.jpg, on each body shape and child age as tryon-<piece>--<base>.jpg.
     private static func presetData(_ piece: Piece, _ base: Base) -> Data? {
         guard let name = piece.preset else { return nil }
+        return presetData(named: name, base)
+    }
+
+    /// An example piece's ready-made picture on this base, if one is bundled. No network.
+    static func presetImage(_ name: String, on base: Base) -> UIImage? {
+        presetData(named: name, base).flatMap(UIImage.init(data:))?.preparingForDisplay()
+    }
+
+    private static func presetData(named name: String, _ base: Base) -> Data? {
         let file = switch base {
         case .mannequin, .dog, .cat: "tryon-\(name)"
         case .hourglass, .pear, .apple, .invertedTriangle, .child2, .child6, .child10, .child14: "tryon-\(name)--\(base.rawValue)"

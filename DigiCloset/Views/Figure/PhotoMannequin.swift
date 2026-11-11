@@ -248,3 +248,47 @@ struct LookFigure: View {
         }
     }
 }
+
+/// A bundled mannequin photo, bare or wearing example pieces' ready-made
+/// pictures. Several looks cross-fade in turn. No network, no try-ons used.
+struct MannequinPhoto: View {
+    let base: TryOnService.Base
+    /// Example slugs (e.g. "wool-coat"); any without a picture on this base are skipped.
+    var looks: [String] = []
+    var height: CGFloat = 300
+    var every: Duration = .seconds(2.2)
+
+    @State private var index = 0
+
+    private var images: [UIImage] {
+        let dressed = looks.compactMap { TryOnService.presetImage($0, on: base) }
+        if !dressed.isEmpty { return dressed }
+        return TryOnService.image(for: base).map { [$0] } ?? []
+    }
+    private var corner: CGFloat { min(26, height * 0.08) }
+
+    var body: some View {
+        let shown = images
+        ZStack {
+            if !shown.isEmpty {
+                Image(uiImage: shown[index % shown.count])
+                    .resizable()
+                    .scaledToFill()
+                    .id(index % shown.count)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: height * 2 / 3, height: height)
+        .background(Theme.studio)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .animation(.easeInOut(duration: 0.4), value: base)
+        .task(id: "\(base.rawValue)|\(looks.joined(separator: ","))") {
+            index = 0
+            guard shown.count > 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: every)
+                withAnimation(.smooth(duration: 0.8)) { index += 1 }
+            }
+        }
+    }
+}

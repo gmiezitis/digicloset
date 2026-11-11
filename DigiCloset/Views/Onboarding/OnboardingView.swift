@@ -208,7 +208,7 @@ struct OnboardingView: View {
     }
 
     private var measurementsStep: some View {
-        StepLayout(title: "Height & weight", subtitle: "So your figure looks like you. Optional and private.") {
+        StepLayout(title: "Height & weight", subtitle: "Helps with sizes and fit. Optional and private.") {
             VStack(spacing: 16) {
                 Picker("Units", selection: $usesMetric) {
                     Text("cm · kg").tag(true)
@@ -217,8 +217,8 @@ struct OnboardingView: View {
                 .pickerStyle(.segmented)
 
                 HStack(alignment: .bottom, spacing: 8) {
-                    StandingFigure(kind: figure, layers: [], height: 230, fit: previewFit)
-                        .frame(width: 110, height: 250, alignment: .bottom)
+                    MannequinPhoto(base: .photo(kind: figure, shape: shape), height: 210)
+                        .frame(width: 140, height: 250, alignment: .bottom)
                     VStack(spacing: 4) {
                         Eyebrow("Height")
                         Picker("Height", selection: $heightCm) {
@@ -244,12 +244,6 @@ struct OnboardingView: View {
             .onChange(of: heightCm) { measured = true }
             .onChange(of: weightKg) { measured = true }
         }
-    }
-
-    private var previewFit: BodyFit {
-        var fit = BodyFit.make(kind: figure, heightCm: Double(heightCm), weightKg: Double(weightKg))
-        fit.height = 1
-        return fit
     }
 
     private var styleStep: some View {
@@ -355,10 +349,12 @@ struct OnboardingView: View {
     private var readyStep: some View {
         VStack(spacing: 22) {
             Spacer(minLength: 10)
-            HStack(alignment: .bottom, spacing: -10) {
-                StandingFigure(kind: figure, layers: Self.readyLook(figure), height: 300, solo: false, fit: measured ? previewFit : .standard)
+            HStack(alignment: .bottom, spacing: -24) {
+                MannequinPhoto(base: .photo(kind: figure, shape: shape), looks: ["wool-coat"], height: 300)
+                    .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
                 if let pet = companions.first(where: \.kind.isPet) {
-                    StandingFigure(kind: pet.kind, layers: Self.readyLook(pet.kind), height: 300, solo: false)
+                    MannequinPhoto(base: .photo(kind: pet.kind), looks: [pet.kind == .cat ? "sage-sweater" : "rain-coat"], height: 190)
+                        .shadow(color: .black.opacity(0.14), radius: 10, x: -2, y: 4)
                 }
             }
             .frame(height: 320, alignment: .bottom)
@@ -479,16 +475,6 @@ struct OnboardingView: View {
         let inches = Int((Double(cm) / 2.54).rounded())
         return "\(inches / 12)′ \(inches % 12)″"
     }
-
-    static func readyLook(_ kind: WearerKind) -> [FigureLayer] {
-        switch kind {
-        case .dog, .cat:
-            [FigureLayer(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!, category: .sweater, colorHex: "D9A3A0")]
-        default:
-            [FigureLayer(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!, category: .dress, colorHex: "D9A3A0"),
-             FigureLayer(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!, category: .shoes, colorHex: "F3F2EE")]
-        }
-    }
 }
 
 // MARK: - Pieces
@@ -522,29 +508,14 @@ private struct StepLayout<Content: View>: View {
     }
 }
 
-/// Opening screen: you, changing outfits. Friends and pets join later, once added.
+/// Opening screen: the mannequin, changing outfits.
 private struct WelcomeStep: View {
-    @State private var index = 0
-
-    private static let outfits: [(human: [(GarmentCategory, String)], dog: [(GarmentCategory, String)])] = [
-        ([(.top, "EFE6D2"), (.bottom, "B88A5A"), (.shoes, "F3F2EE")], [(.sweater, "B88A5A"), (.collar, "EFE6D2")]),
-        ([(.dress, "D9A3A0"), (.shoes, "EBD9D2")], [(.sweater, "E8C3BC"), (.bandana, "D9A3A0")]),
-        ([(.top, "A9B79A"), (.bottom, "2A2C30"), (.outerwear, "2B2A29"), (.shoes, "3A2A22")], [(.sweater, "A9B79A"), (.collar, "2A2C30")]),
-        ([(.top, "E8C3BC"), (.bottom, "2E3B55"), (.outerwear, "6E86A3"), (.shoes, "EBD9D2")], [(.sweater, "2E3B55"), (.collar, "EFE6D2")]),
-    ]
-
-    private func layers(_ items: [(GarmentCategory, String)], salt: Int) -> [FigureLayer] {
-        items.enumerated().map { i, item in
-            FigureLayer(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", salt * 100 + i))!, category: item.0, colorHex: item.1)
-        }
-    }
-
     var body: some View {
-        let outfit = Self.outfits[index]
         VStack(spacing: 26) {
             Spacer(minLength: 20)
-            StandingFigure(kind: .woman, layers: layers(outfit.human, salt: 1), height: 400, solo: false)
-                .frame(height: 420, alignment: .bottom)
+            MannequinPhoto(base: .mannequin, looks: ["rose-slip-dress", "wool-coat", "linen-shirt", "denim-jacket", "sage-knit"],
+                           height: 400)
+                .shadow(color: .black.opacity(0.1), radius: 18, y: 10)
             VStack(spacing: 12) {
                 Eyebrow("DigiCloset")
                 Text("Your closet,\nbeautifully styled.")
@@ -558,12 +529,6 @@ private struct WelcomeStep: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 24)
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1.8))
-                withAnimation(.smooth(duration: 0.8)) { index = (index + 1) % Self.outfits.count }
-            }
-        }
     }
 }
 

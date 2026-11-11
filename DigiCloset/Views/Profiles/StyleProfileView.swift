@@ -48,8 +48,7 @@ struct StyleProfileView: View {
 
     private func hero(_ me: Wearer) -> some View {
         HStack(spacing: 18) {
-            StandingFigure(kind: me.kind, layers: favouriteLayers(me.kind), height: 150, fit: me.fit)
-                .frame(width: 70, height: 160, alignment: .bottom)
+            MannequinPhoto(base: .photo(for: me), height: 150)
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Name", text: Binding(get: { profile.name }, set: { profile.name = $0; me.name = $0 }))
                     .font(Theme.display(30))
@@ -69,16 +68,6 @@ struct StyleProfileView: View {
         let vibes = profile.vibes.map(\.title).joined(separator: ", ")
         let goal = profile.primaryGoal.title
         return vibes.isEmpty ? "Mostly here to \(goal.lowercased())." : "\(vibes) · mostly here to \(goal.lowercased())."
-    }
-
-    /// The figure wears the colours you like most.
-    private func favouriteLayers(_ kind: WearerKind) -> [FigureLayer] {
-        let hexes = topFamilies.map(\.0.swatch) + profile.favoriteColors
-        guard !kind.isPet else { return [] }
-        let slots: [GarmentCategory] = [.top, .bottom, .shoes]
-        return zip(slots, hexes).enumerated().map { i, pair in
-            FigureLayer(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", 900 + i))!, category: pair.0, colorHex: pair.1)
-        }
     }
 
     private var topFamilies: [(ColorFamily, Double)] {
