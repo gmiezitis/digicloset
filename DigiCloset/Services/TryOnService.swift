@@ -211,6 +211,10 @@ enum TryOnService {
         guard !pieces.isEmpty else { return nil }
         return await Task.detached(priority: .userInitiated) { () -> UIImage? in
             guard let data = baseData(base) else { return nil }
+            // A single example piece comes ready-dressed.
+            if pieces.count == 1, let preset = presetData(pieces[0], base) {
+                return UIImage(data: preset)?.preparingForDisplay()
+            }
             let key = chainKey(baseHash(base, data), pieces.sorted { $0.order < $1.order })
             return read(key).flatMap(UIImage.init(data:))?.preparingForDisplay()
         }.value
@@ -253,11 +257,13 @@ enum TryOnService {
         guard var person = baseData(base) else { throw Failure.badImage }
         let ordered = pieces.sorted { $0.order < $1.order }
         var key = baseHash(base, person)
-        try checkRemaining(needed: uncachedSteps(ordered, from: key))
+        try checkRemaining(needed: uncachedSteps(ordered, from: key, base: base))
         for (index, piece) in ordered.enumerated() {
             progress?(index + 1, ordered.count)
             let stepKey = chainKey(key, [piece])
             person = try await InFlight.shared.run(stepKey) { [person] in
+                // The first piece on the bare base is its ready-made picture, if it has one.
+                if index == 0, let preset = presetData(piece, base) { return preset }
                 if let hit = read(stepKey) { return hit }
                 let result = try await call(person: person, garment: piece.jpeg, category: piece.category)
                 write(stepKey, result)
@@ -405,10 +411,11 @@ enum TryOnService {
     private static let remainingToday = OSAllocatedUnfairLock<Int?>(initialState: nil)
 
     /// How many steps of a chained outfit aren't on disk yet, so would cost a try-on.
-    private static func uncachedSteps(_ ordered: [Piece], from start: String) -> Int {
+    private static func uncachedSteps(_ ordered: [Piece], from start: String, base: Base) -> Int {
         var key = start, needed = 0
-        for piece in ordered {
+        for (index, piece) in ordered.enumerated() {
             key = chainKey(key, [piece])
+            if index == 0, presetData(piece, base) != nil { continue }
             if read(key) == nil { needed += 1 }
         }
         return needed

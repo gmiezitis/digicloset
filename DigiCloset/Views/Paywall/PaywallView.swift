@@ -41,6 +41,12 @@ struct PaywallView: View {
                         Button("Try again") { Task { await store.loadProducts() } }
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Theme.ink)
+                        if hard {
+                            // Never leave someone locked out because the App Store is unreachable.
+                            Button("Continue with Free for now") { entitlements.continuedWithoutStore = true }
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Theme.muted)
+                        }
                     }
                     if let message {
                         Text(message).font(.footnote).foregroundStyle(Theme.muted).multilineTextAlignment(.center)

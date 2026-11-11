@@ -106,8 +106,13 @@ final class Entitlements {
     var plan: Plan { storePlan }
     #endif
 
+    /// Set when plans couldn't load (offline, App Store down) and the user chose
+    /// to continue on Free. Lasts until the app is closed, so the paywall comes
+    /// back on the next launch once the App Store is reachable.
+    var continuedWithoutStore = false
+
     /// The app is locked behind the paywall.
-    var mustSubscribe: Bool { Plan.hardPaywall && checked && plan == .free }
+    var mustSubscribe: Bool { Plan.hardPaywall && checked && plan == .free && !continuedWithoutStore }
 
     private init() {}
 }
