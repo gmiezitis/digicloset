@@ -1,10 +1,12 @@
 import StoreKit
 import SwiftUI
 
-/// Free vs Individual vs Family, shown at a natural moment (a second person,
-/// a second pet, the fourth try-on), never on launch or during onboarding.
+/// Individual vs Family. As a sheet at a natural moment (a third person, more
+/// pets), or with `hard: true` as the screen after onboarding that the app stays
+/// behind until the user starts the trial or subscribes.
 struct PaywallView: View {
     var reason: PaywallReason?
+    var hard = false
     @Environment(\.dismiss) private var dismiss
     @State private var store = StoreKitManager.shared
     @State private var entitlements = Entitlements.shared
@@ -33,8 +35,13 @@ struct PaywallView: View {
                                         "Clean, unwatermarked look cards"],
                              badge: nil, isChosen: chosen == .individual) { chosen = .individual }
 
-                    freeLine
+                    if !hard { freeLine }
                     buyButton
+                    if store.loadFailed {
+                        Button("Try again") { Task { await store.loadProducts() } }
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+                    }
                     if let message {
                         Text(message).font(.footnote).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     }
@@ -45,11 +52,13 @@ struct PaywallView: View {
             .background(StudioBackground())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Not now") { dismiss() } }
+                if !hard {
+                    ToolbarItem(placement: .cancellationAction) { Button("Not now") { dismiss() } }
+                }
             }
             .task { if store.products.isEmpty { await store.loadProducts() } }
             .onAppear { if reason == .tryOns || reason == .morePets { chosen = .individual } }
-            .onChange(of: entitlements.plan) { _, plan in if plan != .free { dismiss() } }
+            .onChange(of: entitlements.plan) { _, plan in if plan != .free && !hard { dismiss() } }
         }
     }
 
@@ -73,7 +82,7 @@ struct PaywallView: View {
         case .morePets: "More pets"
         case .tryOns: "More try-ons"
         case .familyPhotoLook: "Family photo look"
-        case nil: "Plans"
+        case nil: hard ? "Welcome" : "Plans"
         }
     }
 
@@ -83,7 +92,7 @@ struct PaywallView: View {
         case .morePets: "Room for every pet"
         case .tryOns: "Keep trying things on"
         case .familyPhotoLook: "One look for everyone"
-        case nil: "Unlock the whole family"
+        case nil: hard ? "Try everything free for 7 days" : "Unlock the whole family"
         }
     }
 

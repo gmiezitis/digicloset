@@ -39,6 +39,10 @@ enum Plan: String, CaseIterable, Codable, Sendable {
     }
 
     var cleanExports: Bool { self != .free }
+
+    /// Hard paywall: after onboarding the app stays locked until the user starts the
+    /// free trial or subscribes. Set to false to go back to a usable Free plan.
+    static let hardPaywall = true
 }
 
 /// Why a paywall is shown, so it can lead with the right plan.
@@ -90,6 +94,10 @@ final class Entitlements {
     /// From the App Store (StoreKitManager).
     var storePlan: Plan = .free
 
+    /// True once StoreKit has read the user's subscriptions at launch, so a paying
+    /// user never sees the hard paywall flash up before their plan loads.
+    var checked = false
+
     #if DEBUG
     /// Simulator testing only: launch with `-plan individual` or `-plan family`.
     private let override = UserDefaults.standard.string(forKey: "plan").flatMap(Plan.init(rawValue:))
@@ -97,6 +105,9 @@ final class Entitlements {
     #else
     var plan: Plan { storePlan }
     #endif
+
+    /// The app is locked behind the paywall.
+    var mustSubscribe: Bool { Plan.hardPaywall && checked && plan == .free }
 
     private init() {}
 }

@@ -78,6 +78,7 @@ final class StoreKitManager {
             if plan == .family || best == .free { best = plan }
         }
         Entitlements.shared.storePlan = best
+        Entitlements.shared.checked = true
     }
 
     nonisolated static func plan(for productID: String) -> Plan? {

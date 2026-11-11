@@ -23,21 +23,36 @@ struct DigiClosetApp: App {
     }
 }
 
-/// Onboarding until it's done, then the app.
+/// Onboarding until it's done, then the paywall (hard paywall), then the app.
 struct RootView: View {
     @Query private var profiles: [UserProfile]
+    @State private var entitlements = Entitlements.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
             if let profile = profiles.first, profile.onboardedAt != nil {
-                MainTabs(start: AppTab.start(for: profile.primaryGoal))
-                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+                if Plan.hardPaywall && !entitlements.checked {
+                    // A moment while StoreKit reads the user's subscriptions.
+                    StudioBackground().ignoresSafeArea()
+                } else if entitlements.mustSubscribe {
+                    PaywallView(hard: true)
+                        .transition(.opacity)
+                } else {
+                    MainTabs(start: AppTab.start(for: profile.primaryGoal))
+                        .transition(.opacity.combined(with: .scale(scale: 1.02)))
+                }
             } else {
                 OnboardingView()
                     .transition(.opacity)
             }
         }
         .animation(.smooth(duration: 0.6), value: profiles.first?.onboardedAt)
+        .animation(.smooth(duration: 0.6), value: entitlements.mustSubscribe)
+        // Catch a trial or subscription that ended while the app was in the background.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await StoreKitManager.shared.refresh() } }
+        }
     }
 }
 
