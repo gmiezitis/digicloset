@@ -22,6 +22,8 @@ struct TodayView: View {
     @State private var showBuilder = false
     @State private var showStyle = false
     @State private var showAllLooks = false
+    @State private var showFamilyLook = false
+    @State private var paywall: PaywallReason?
     @AppStorage("today.woreKey") private var woreKey = ""
 
     private let calendar = Calendar.current
@@ -56,6 +58,8 @@ struct TodayView: View {
             .sheet(item: Binding(get: { planDay.map(DayID.init) }, set: { planDay = $0?.day })) { PlanPicker(day: $0.day) }
             .sheet(isPresented: $showAdd) { AddGarmentView(preselectedOwner: me?.id) }
             .sheet(isPresented: $showBuilder) { LookBuilderView() }
+            .sheet(isPresented: $showFamilyLook) { FamilyLookView() }
+            .sheet(item: $paywall) { PaywallView(reason: $0) }
             .sheet(isPresented: $showStyle) { if let profile { StyleProfileView(profile: profile) } }
             .fullScreenCover(isPresented: $showAllLooks) { RunwayView(onClose: { showAllLooks = false }) }
             .onAppear {
@@ -101,6 +105,15 @@ struct TodayView: View {
                 Menu {
                     Button("Add clothes", systemImage: "camera") { showAdd = true }
                     Button("Create a look", systemImage: "sparkles") { showBuilder = true }
+                    if wearers.count > 1 {
+                        Button("Family photo look", systemImage: "person.3") {
+                            if case .paywall(let reason) = FeatureGate.canBuildFamilyPhotoLook(wearerCount: 2, plan: Entitlements.shared.plan) {
+                                paywall = reason
+                            } else {
+                                showFamilyLook = true
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
@@ -272,6 +285,15 @@ struct TodayView: View {
 
     // MARK: Your looks
 
+    /// One card per look, and one per matching set rather than one per person in it.
+    private var recentLooks: [Look] {
+        var seenSets = Set<UUID>()
+        return looks.filter { look in
+            guard let set = look.matchSet else { return true }
+            return seenSets.insert(set.id).inserted
+        }
+    }
+
     private var savedLooks: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -284,7 +306,7 @@ struct TodayView: View {
             .padding(.horizontal, 20)
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
-                    ForEach(looks.prefix(10)) { look in
+                    ForEach(recentLooks.prefix(10)) { look in
                         Button { openLook = look } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 LookFigure(looks: look.matchSet?.orderedLooks ?? [look], height: 170)

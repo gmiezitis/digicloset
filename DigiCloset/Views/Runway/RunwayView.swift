@@ -22,6 +22,9 @@ struct RunwayView: View {
     @State private var openLook: Look?
     @State private var openGarment: Garment?
     @State private var showBuilder = false
+    @State private var showFamilyLook = false
+    @State private var shareSet: MatchSet?
+    @State private var paywall: PaywallReason?
     @State private var showAdd = false
     @Query private var garments: [Garment]
 
@@ -65,6 +68,9 @@ struct RunwayView: View {
             }
             .sheet(item: $openGarment) { GarmentDetailView(garment: $0).presentationDetents([.medium, .large]) }
             .sheet(isPresented: $showBuilder) { LookBuilderView() }
+            .sheet(isPresented: $showFamilyLook) { FamilyLookView() }
+            .sheet(item: $shareSet) { set in LookCardSheet(title: set.name, looks: set.orderedLooks) }
+            .sheet(item: $paywall) { PaywallView(reason: $0) }
             .sheet(isPresented: $showAdd) { AddGarmentView(preselectedOwner: nil) }
         }
     }
@@ -116,6 +122,9 @@ struct RunwayView: View {
             Menu {
                 Button("Add clothes", systemImage: "camera") { showAdd = true }
                 Button("Create a look", systemImage: "sparkles") { showBuilder = true }
+                if wearers.count > 1 {
+                    Button("Family photo look", systemImage: "person.3") { openFamilyLook() }
+                }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .semibold))
@@ -196,10 +205,20 @@ struct RunwayView: View {
 
     // MARK: Sets
 
+    private func openFamilyLook() {
+        if case .paywall(let reason) = FeatureGate.canBuildFamilyPhotoLook(wearerCount: 2, plan: Entitlements.shared.plan) {
+            paywall = reason
+        } else {
+            showFamilyLook = true
+        }
+    }
+
     @ViewBuilder
     private var setsSection: some View {
         if visibleSets.isEmpty {
-            EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman, message: "Match an outfit with a friend or your pet to create a set.") { showBuilder = true }
+            EmptyRunway(kind: wearers.first(where: \.isSelf)?.kind ?? .woman,
+                        message: "Dress the whole family in matching colours, pets included.",
+                        buttonTitle: "Family photo look", buttonIcon: "person.3") { openFamilyLook() }
         } else {
             Carousel(items: visibleSets, focused: $focusedSet, widthRatio: 0.78) { set, isFocused in
                 SetCard(set: set, isFocused: isFocused)
@@ -208,7 +227,7 @@ struct RunwayView: View {
             }
 
             if let set = visibleSets.first(where: { $0.id == focusedSet }) ?? visibleSets.first {
-                SetSummary(set: set, onLook: { openLook = $0 })
+                SetSummary(set: set, onLook: { openLook = $0 }, onShare: { shareSet = set })
                     .id(set.id)
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
@@ -351,6 +370,7 @@ struct LookSummary: View {
 struct SetSummary: View {
     let set: MatchSet
     var onLook: (Look) -> Void
+    var onShare: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -381,6 +401,11 @@ struct SetSummary: View {
                 .buttonStyle(PressableStyle())
                 .foregroundStyle(Theme.ink)
             }
+            Button(action: onShare) {
+                PrimaryButtonLabel(title: "Share look card", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(PressableStyle())
+            .padding(.top, 4)
         }
         .padding(.horizontal, 20)
     }

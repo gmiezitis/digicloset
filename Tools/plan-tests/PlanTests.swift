@@ -41,8 +41,6 @@ check("individual: 3 wearers -> paywall", FeatureGate.canBuildFamilyPhotoLook(we
 check("family: 4 people + dog ok", FeatureGate.canBuildFamilyPhotoLook(wearerCount: 5, plan: .family) == .allowed)
 
 // Exports
-check("free exports watermarked", !FeatureGate.canExportClean(plan: .free))
-check("paid exports clean", FeatureGate.canExportClean(plan: .individual) && FeatureGate.canExportClean(plan: .family))
 
 print(failures == 0 ? "all plan checks passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

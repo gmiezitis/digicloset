@@ -228,17 +228,23 @@ struct LookFigure: View {
         } else if shown.count == 1, let look = shown.first {
             PhotoMannequin(garments: look.items, kind: look.kind, height: height, refine: true)
         } else {
-            let card = height * 0.9
-            let step = card * 0.32
+            // Up to three fan out large; a bigger family (up to six) shrinks to fit
+            // in about the same width. Big sets use the cheaper per-piece dressing
+            // (each piece dressed once, then combined) rather than a full AI
+            // dressing per person, so one family look can't eat a month's try-ons.
+            let count = min(shown.count, 6)
+            let big = count > 3
+            let card = big ? height * 0.87 / (2.0 / 3.0 + CGFloat(count - 1) * 0.26) : height * 0.9
+            let step = card * (big ? 0.26 : 0.32)
             ZStack(alignment: .bottomLeading) {
-                ForEach(Array(shown.prefix(3).enumerated()), id: \.element.id) { index, look in
-                    PhotoMannequin(garments: look.items, kind: look.kind, height: card, refine: true)
+                ForEach(Array(shown.prefix(count).enumerated()), id: \.element.id) { index, look in
+                    PhotoMannequin(garments: look.items, kind: look.kind, wearer: look.wearer, height: card, refine: !big)
                         .shadow(color: .black.opacity(0.14), radius: 8, x: -2, y: 3)
-                        .offset(x: CGFloat(index) * step, y: index.isMultiple(of: 2) ? 0 : -height * 0.05)
+                        .offset(x: CGFloat(index) * step, y: index.isMultiple(of: 2) ? 0 : -card * 0.05)
                         .zIndex(Double(-index))
                 }
             }
-            .frame(width: card * 2 / 3 + CGFloat(min(shown.count, 3) - 1) * step, height: height, alignment: .bottomLeading)
+            .frame(width: card * 2 / 3 + CGFloat(count - 1) * step, height: height, alignment: .bottomLeading)
         }
     }
 }

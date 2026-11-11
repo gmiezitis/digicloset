@@ -13,6 +13,7 @@ struct LookDetailView: View {
     @State private var woreToday = false
     @State private var confirmDelete = false
     @State private var tryingOn = false
+    @State private var sharing: [Look]?
 
     private var selectedGarment: Garment? { look.items.first { $0.id == selected } }
 
@@ -109,9 +110,18 @@ struct LookDetailView: View {
         .scrollIndicators(.hidden)
         .background(StudioBackground())
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: Binding(get: { sharing != nil }, set: { if !$0 { sharing = nil } })) {
+            if let sharing {
+                LookCardSheet(title: sharing.count > 1 ? (look.matchSet?.name ?? look.name) : look.name, looks: sharing)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button("Share look card", systemImage: "square.and.arrow.up") { sharing = [look] }
+                    if let set = look.matchSet, (set.looks?.count ?? 0) > 1 {
+                        Button("Share \(set.name) card", systemImage: "person.3") { sharing = set.orderedLooks }
+                    }
                     Button("Delete look", systemImage: "trash", role: .destructive) { confirmDelete = true }
                 } label: { Image(systemName: "ellipsis") }
             }

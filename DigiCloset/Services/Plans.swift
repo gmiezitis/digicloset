@@ -38,8 +38,6 @@ enum Plan: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    var cleanExports: Bool { self != .free }
-
     /// Hard paywall: after onboarding the app stays locked until the user starts the
     /// free trial or subscribes. Set to false to go back to a usable Free plan.
     static let hardPaywall = true
@@ -81,8 +79,6 @@ enum FeatureGate {
     static func canBuildFamilyPhotoLook(wearerCount: Int, plan: Plan) -> Gate {
         wearerCount <= plan.maxFamilyLookWearers ? .allowed : .paywall(.familyPhotoLook)
     }
-
-    static func canExportClean(plan: Plan) -> Bool { plan.cleanExports }
 }
 
 /// The user's current plan. Starts as Free; only StoreKitManager raises it, from

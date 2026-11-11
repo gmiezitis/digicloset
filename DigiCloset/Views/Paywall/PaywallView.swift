@@ -27,15 +27,15 @@ struct PaywallView: View {
                     .pickerStyle(.segmented)
 
                     PlanCard(plan: .family, title: "Family", product: store.product(.family, yearly: yearly), yearly: yearly,
-                             features: ["Up to 6 people, plus every pet", "Family photo looks for the whole household",
+                             features: ["Up to 6 people, plus every pet", "Family photo looks with everyone in them",
                                         "50 AI try-ons a month, shared", "One subscription with Family Sharing"],
                              badge: "Best for families", isChosen: chosen == .family) { chosen = .family }
                     PlanCard(plan: .individual, title: "Individual", product: store.product(.individual, yearly: yearly), yearly: yearly,
-                             features: ["You and one other person, any number of pets", "30 AI try-ons a month",
-                                        "Clean, unwatermarked look cards"],
+                             features: ["You and one other person, any number of pets", "Matching looks for two",
+                                        "30 AI try-ons a month"],
                              badge: nil, isChosen: chosen == .individual) { chosen = .individual }
 
-                    if !hard { freeLine }
+                    if !hard && !Plan.hardPaywall { freeLine }
                     buyButton
                     if store.loadFailed {
                         Button("Try again") { Task { await store.loadProducts() } }
