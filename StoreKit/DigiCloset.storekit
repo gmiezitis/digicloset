@@ -1,0 +1,132 @@
+{
+  "identifier": "8C1D2E3F",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_applicationInternalID": "",
+    "_developerTeamID": "",
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "LVA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [
+    {
+      "id": "21000001",
+      "localizations": [
+        {
+          "description": "DigiCloset Premium",
+          "displayName": "DigiCloset Premium",
+          "locale": "en_US"
+        }
+      ],
+      "name": "Premium",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "59.99",
+          "familyShareable": true,
+          "groupNumber": 1,
+          "internalID": "61000001",
+          "introductoryOffer": {
+            "internalID": "610000011",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Family (yearly)",
+              "displayName": "Family (yearly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "premium_family_yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Family (yearly)",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "7.99",
+          "familyShareable": true,
+          "groupNumber": 1,
+          "internalID": "61000002",
+          "introductoryOffer": {
+            "internalID": "610000021",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Family (monthly)",
+              "displayName": "Family (monthly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "premium_family_monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Family (monthly)",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "39.99",
+          "familyShareable": true,
+          "groupNumber": 2,
+          "internalID": "61000003",
+          "introductoryOffer": {
+            "internalID": "610000031",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Individual (yearly)",
+              "displayName": "Individual (yearly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "premium_individual_yearly",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Individual (yearly)",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "4.99",
+          "familyShareable": true,
+          "groupNumber": 2,
+          "internalID": "61000004",
+          "introductoryOffer": {
+            "internalID": "610000041",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          },
+          "localizations": [
+            {
+              "description": "Individual (monthly)",
+              "displayName": "Individual (monthly)",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "premium_individual_monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Individual (monthly)",
+          "subscriptionGroupID": "21000001",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

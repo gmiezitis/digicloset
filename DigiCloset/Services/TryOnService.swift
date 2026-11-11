@@ -13,11 +13,14 @@ enum TryOnService {
         case notConfigured, unsupported, badImage, server(String)
         /// The worker's daily limit: this phone's (`daily == false`) or the whole app's.
         case limit(daily: Bool)
+        /// The plan's try-on allowance is used up; the paywall can offer more.
+        case needsPlan
         var errorDescription: String? {
             switch self {
             case .notConfigured: "Try-on isn't connected yet."
             case .limit(daily: false): "You've used today's try-ons. More tomorrow. Pieces already dressed stay saved."
             case .limit(daily: true): "Try-on is very busy today. Please try again tomorrow."
+            case .needsPlan: "You've used your free try-ons. A plan gives you more every month."
             case .unsupported: "Try-on works with tops, sweaters, coats, dresses, trousers and skirts."
             case .badImage: "Couldn't read one of the photos."
             case .server(let message): message
@@ -395,11 +398,16 @@ enum TryOnService {
         return needed
     }
 
-    /// Stops before starting an outfit that today's limit can't finish, so no
-    /// try-ons are spent on a look that would stop halfway.
+    /// Stops before starting an outfit that the plan's allowance or today's limit
+    /// can't finish, so no try-ons are spent on a look that would stop halfway.
+    /// Only real users' try-ons (through the worker) count; the dev key doesn't.
+    @MainActor
     private static func checkRemaining(needed: Int) throws {
-        guard TryOnConfig.usesWorker, needed > 0, let left = remainingToday.withLock({ $0 }), left < needed else { return }
-        throw Failure.limit(daily: false)
+        guard TryOnConfig.usesWorker, needed > 0 else { return }
+        let gate = FeatureGate.canStartTryOn(usedLifetime: TryOnUsage.lifetime, usedThisMonth: TryOnUsage.thisMonth,
+                                             needed: needed, plan: Entitlements.shared.plan)
+        if gate != .allowed { throw Failure.needsPlan }
+        if let left = remainingToday.withLock({ $0 }), left < needed { throw Failure.limit(daily: false) }
     }
 
     // MARK: Network
@@ -415,6 +423,7 @@ enum TryOnService {
                 "target": target == .cat ? "cat" : target == .dog ? "dog" : "person",
             ])
             guard let link = json["image"] as? String else { throw Failure.server("Couldn't dress that piece. Please try again.") }
+            TryOnUsage.record()
             return try await download(link)
         }
         // Development only: straight to fal.ai with the key from Secrets.plist.
@@ -454,6 +463,7 @@ enum TryOnService {
             "category": category,
         ])
         guard let link = json["image"] as? String else { throw Failure.server("Try-on failed. Please try again.") }
+        TryOnUsage.record()
         return try await download(link)
     }
 
@@ -574,4 +584,25 @@ final class InFlight {
     }
 
     func isRunning(_ key: String) -> Bool { tasks[key] != nil }
+}
+
+/// How many try-ons this phone has used through the worker, for the plan's
+/// allowance. The worker enforces the real limits; this is for the app's UX.
+enum TryOnUsage {
+    private static var store: UserDefaults { .standard }
+
+    static var lifetime: Int { store.integer(forKey: "tryOnLifetime") }
+    static var thisMonth: Int { store.string(forKey: "tryOnMonthKey") == monthKey ? store.integer(forKey: "tryOnMonth") : 0 }
+
+    static func record() {
+        let month = thisMonth + 1
+        store.set(lifetime + 1, forKey: "tryOnLifetime")
+        store.set(month, forKey: "tryOnMonth")
+        store.set(monthKey, forKey: "tryOnMonthKey")
+    }
+
+    private static var monthKey: String {
+        let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: .now)
+        return String(format: "%04d-%02d", parts.year ?? 0, parts.month ?? 0)
+    }
 }

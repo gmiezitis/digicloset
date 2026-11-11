@@ -42,8 +42,9 @@ enum Plan: String, CaseIterable, Codable, Sendable {
 }
 
 /// Why a paywall is shown, so it can lead with the right plan.
-enum PaywallReason: String, Sendable {
+enum PaywallReason: String, Identifiable, Sendable {
     case familySeats, morePets, tryOns, familyPhotoLook
+    var id: String { rawValue }
 }
 
 enum Gate: Equatable, Sendable {
@@ -80,19 +81,22 @@ enum FeatureGate {
     static func canExportClean(plan: Plan) -> Bool { plan.cleanExports }
 }
 
-/// The user's current plan. Always starts as Free; only StoreKit (coming next)
-/// may raise it, from verified transactions. Never set it from a saved flag.
+/// The user's current plan. Starts as Free; only StoreKitManager raises it, from
+/// verified App Store transactions. Never set it from a saved flag.
 @MainActor @Observable
 final class Entitlements {
     static let shared = Entitlements()
-    private(set) var plan: Plan = .free
+
+    /// From the App Store (StoreKitManager).
+    var storePlan: Plan = .free
 
     #if DEBUG
-    /// Simulator testing only: pass `-plan individual` or `-plan family` as a launch argument.
-    init() {
-        if let raw = UserDefaults.standard.string(forKey: "plan"), let plan = Plan(rawValue: raw) { self.plan = plan }
-    }
+    /// Simulator testing only: launch with `-plan individual` or `-plan family`.
+    private let override = UserDefaults.standard.string(forKey: "plan").flatMap(Plan.init(rawValue:))
+    var plan: Plan { override ?? storePlan }
     #else
-    init() {}
+    var plan: Plan { storePlan }
     #endif
+
+    private init() {}
 }

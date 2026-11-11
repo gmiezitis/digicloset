@@ -65,6 +65,7 @@ struct WearerEditor: View {
     @State private var accent = Theme.accents[0]
     @State private var age = 6
     @State private var confirmDelete = false
+    @State private var paywall: PaywallReason?
 
     var body: some View {
         NavigationStack {
@@ -148,6 +149,7 @@ struct WearerEditor: View {
                     Button("Save", action: save).disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .sheet(item: $paywall) { PaywallView(reason: $0) }
             .confirmationDialog("Remove this closet and everything in it?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) {
                     if let wearer { context.delete(wearer) }
@@ -172,6 +174,12 @@ struct WearerEditor: View {
             wearer.accentHex = accent
             wearer.age = kind == .child ? age : 0
         } else {
+            // Over the plan's people or pets: offer a plan instead of saving.
+            let others = wearers.filter { !$0.isSelf }.map(\.kind)
+            if case .paywall(let reason) = FeatureGate.canAddWearer(kind, existing: others, plan: Entitlements.shared.plan) {
+                paywall = reason
+                return
+            }
             let added = Wearer(name: trimmed, kind: kind, accentHex: accent, sortIndex: (wearers.map(\.sortIndex).max() ?? 0) + 1)
             context.insert(added)
             if kind == .child { added.age = age }

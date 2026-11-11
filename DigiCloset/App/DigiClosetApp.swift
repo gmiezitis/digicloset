@@ -17,6 +17,7 @@ struct DigiClosetApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .task { StoreKitManager.shared.start() }
         }
         .modelContainer(container)
     }

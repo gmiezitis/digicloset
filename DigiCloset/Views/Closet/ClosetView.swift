@@ -9,6 +9,7 @@ struct ClosetView: View {
     @State private var search = ""
     @State private var showAdd = false
     @State private var showNewWearer = false
+    @State private var showPlans = false
     @State private var editing: Wearer?
 
     private var current: Wearer? { wearers.first { $0.id == selectedID } ?? wearers.first }
@@ -48,6 +49,7 @@ struct ClosetView: View {
                         Menu {
                             Button(current.isSelf ? "Edit my profile" : "Edit \(current.name)", systemImage: "pencil") { editing = current }
                             Button("Add a person or pet", systemImage: "person.badge.plus") { showNewWearer = true }
+                            Button("Plans", systemImage: "sparkles") { showPlans = true }
                         } label: { Image(systemName: "ellipsis") }
                         .accessibilityLabel("More")
                     }
@@ -56,6 +58,7 @@ struct ClosetView: View {
             .navigationDestination(for: Garment.self) { GarmentDetailView(garment: $0) }
             .sheet(isPresented: $showAdd) { AddGarmentView(preselectedOwner: current?.id) }
             .sheet(isPresented: $showNewWearer) { WearerEditor() }
+            .sheet(isPresented: $showPlans) { PaywallView() }
             .sheet(item: $editing) { WearerEditor(wearer: $0) }
             .onChange(of: selectedID) { category = nil }
         }

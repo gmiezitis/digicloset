@@ -16,6 +16,7 @@ struct TryOnView: View {
     @State private var working = false
     @State private var step = (0, 0)
     @State private var error: String?
+    @State private var showPaywall = false
 
     init(garment: Garment) { garments = [garment] }
     init(look: Look) {
@@ -56,6 +57,7 @@ struct TryOnView: View {
             reload(autoStart: true)
         }
         .onChange(of: baseRaw) { _, _ in error = nil; reload(autoStart: true) }
+        .sheet(isPresented: $showPaywall) { PaywallView(reason: .tryOns) }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
             Task { await usePhoto(item) }
@@ -169,6 +171,9 @@ struct TryOnView: View {
                                                      progress: { done, total in step = (done, total) },
                                                      partial: { if wanted == base { result = $0 } })
             if wanted == base { result = image }
+        } catch TryOnService.Failure.needsPlan {
+            self.error = TryOnService.Failure.needsPlan.localizedDescription
+            showPaywall = true
         } catch {
             self.error = error.localizedDescription
         }
