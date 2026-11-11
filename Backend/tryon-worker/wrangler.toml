@@ -1,0 +1,29 @@
+name = "digicloset-tryon"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# "kling" (default, cheapest) or "fashn" to try FASHN first.
+PROVIDER = "kling"
+# Spending limits, in US dollars of fal cost (a try-on counts as $0.08, a pet or
+# accessory edit as $0.04). Over a budget, try-on stops until the next day or month.
+DAILY_BUDGET_USD = "15"
+MONTHLY_BUDGET_USD = "150"
+# Try-ons per phone. 60 a month is above Family's 50, so only abuse hits it.
+DEVICE_DAILY_LIMIT = "10"
+DEVICE_MONTHLY_LIMIT = "60"
+# Emergency stop: set to "true" and deploy, or faster, with no deploy:
+#   npx wrangler kv key put --binding QUOTA config:paused 1     (delete the key to resume)
+PAUSED = "false"
+
+# Counter store for the limits. Create it once and paste the id below:
+#   npx wrangler kv namespace create QUOTA
+# The worker refuses all try-ons (503) until this is set up.
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "PASTE_KV_NAMESPACE_ID"
+
+# Secrets (set once, never committed):
+#   npx wrangler secret put FAL_KEY
+#   npx wrangler secret put APP_TOKEN
+#   npx wrangler secret put ADMIN_TOKEN   (for GET /usage)
