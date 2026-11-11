@@ -3,13 +3,16 @@
 // POST /tryon  (headers X-App-Token, optional X-Device-Id)
 //   { "person": "<base64 jpeg>", "garment": "<base64 png/jpeg>", "category": "tops|bottoms|one-pieces|auto" }
 // → { "image": "<url>", "provider": "kling" | "fashn", "remaining": <try-ons left today on this device> }
-// → 429 { "error": "quota", "scope": "device" | "daily", "remaining": 0 } when a limit is reached
+// → 429 { "error": "quota", "scope": "device" | "device-month" | "budget", "remaining": 0 } when a limit is reached
+// → 503 { "error": "paused" } while the kill switch is on
 //
 // POST /edit  (same headers) — pet wear and accessories, which Kling can't dress
 //   { "base": "<base64 jpeg>", "piece": "<base64 jpeg>", "kind": "sweater|collar|bandana|hat|shoes|bag", "target": "dog|cat|person" }
 // → { "image": "<url>", "remaining": <n> }; counts against the same limits.
 // The prompt is built here from `kind`, so the app can't turn this into a
 // general image generator on our fal account.
+//
+// GET /usage  (header X-Admin-Token) → today's and this month's spend against the budgets.
 
 const KLING = "fal-ai/kling/v1-5/kolors-virtual-try-on";
 const FASHN = "fal-ai/fashn/tryon/v1.6";
@@ -33,15 +36,24 @@ function editPrompt(kind, target) {
   return asks[kind] ? asks[kind] + KEEP : null;
 }
 
-// Every try-on costs about $0.07, so the worker caps spending itself rather than
-// trusting the app. 200 a day across everyone is at most ~$14/day.
-const DEFAULT_DAILY_LIMIT = 200;
-const DEFAULT_DEVICE_DAILY_LIMIT = 10;
-const COUNTER_TTL_SECONDS = 2 * 24 * 60 * 60;
+// The worker caps spending itself rather than trusting the app. It counts money,
+// not requests, because the models cost different amounts. Prices are fal's list
+// prices in US cents, rounded up; a try-on is charged at the dearer provider since
+// FASHN may be the one that answers. Update these if fal's prices change.
+const COST_CENTS = { tryon: 8, edit: 4 };
+
+const DEFAULTS = {
+  DAILY_BUDGET_USD: 15,      // whole app, per UTC day
+  MONTHLY_BUDGET_USD: 150,   // whole app, per calendar month (UTC)
+  DEVICE_DAILY_LIMIT: 10,    // try-ons per phone per day
+  DEVICE_MONTHLY_LIMIT: 60,  // try-ons per phone per month (above Family's 50)
+};
+const COUNTER_TTL_SECONDS = 40 * 24 * 60 * 60; // outlives a month, then cleans itself up
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/usage") return usage(request, env);
     if (request.method !== "POST" || !["/tryon", "/edit"].includes(url.pathname)) {
       return json({ error: "not found" }, 404);
     }
@@ -51,6 +63,10 @@ export default {
     // Fail closed: without the counter store there would be no spending limit.
     if (!env.QUOTA) {
       return json({ error: "quota store not configured" }, 503);
+    }
+    // Kill switch, no redeploy needed:  npx wrangler kv key put --binding QUOTA config:paused 1
+    if (env.PAUSED === "true" || await env.QUOTA.get("config:paused")) {
+      return json({ error: "paused" }, 503);
     }
     if (Number(request.headers.get("Content-Length") || 0) > MAX_BYTES) {
       return json({ error: "image too large" }, 413);
@@ -65,7 +81,7 @@ export default {
       return json({ error: "person and garment are required" }, 400);
     }
 
-    const quota = await reserveTryOn(request, env);
+    const quota = await reserve(request, env, COST_CENTS.tryon);
     if (!quota.ok) {
       return json({ error: "quota", scope: quota.scope, remaining: 0 }, 429);
     }
@@ -101,7 +117,7 @@ async function handleEdit(request, env, body) {
   if (typeof base !== "string" || typeof piece !== "string" || !prompt) {
     return json({ error: "base, piece and a known kind are required" }, 400);
   }
-  const quota = await reserveTryOn(request, env);
+  const quota = await reserve(request, env, COST_CENTS.edit);
   if (!quota.ok) {
     return json({ error: "quota", scope: quota.scope, remaining: 0 }, 429);
   }
@@ -118,30 +134,88 @@ async function handleEdit(request, env, body) {
   }
 }
 
-// Counts try-ons per UTC day, for the whole app and for each device, in Workers KV.
+// Two counters in Workers KV, each one JSON value so a request costs two reads
+// and two writes (the free KV plan allows 1,000 writes a day):
+//   spend          → { day, dayCents, month, monthCents } for the whole app
+//   dev:<hash>     → { day, dayCount, month, monthCount } for one phone
 // The slot is taken before calling fal so parallel requests can't all slip through.
-// KV isn't transactional, so a burst can overshoot a limit by a few; the daily cap
-// still bounds the bill.
-async function reserveTryOn(request, env) {
-  const dailyLimit = positiveInt(env.DAILY_LIMIT, DEFAULT_DAILY_LIMIT);
-  const deviceLimit = positiveInt(env.DEVICE_DAILY_LIMIT, DEFAULT_DEVICE_DAILY_LIMIT);
-  const day = new Date().toISOString().slice(0, 10);
-  const appKey = `tryon:day:${day}`;
-  const deviceKey = `tryon:device:${day}:${await deviceBucket(request)}`;
+// KV isn't transactional, so a burst can overshoot by a few; the budgets still bound the bill.
+async function reserve(request, env, cents) {
+  const limits = readLimits(env);
+  const now = periods();
+  const devKey = `dev:${await deviceBucket(request)}`;
+  const [spend, dev] = await Promise.all([counter(env, "spend", now), counter(env, devKey, now)]);
 
-  const [appCount, deviceCount] = await Promise.all([count(env, appKey), count(env, deviceKey)]);
-  if (appCount >= dailyLimit) return { ok: false, scope: "daily" };
-  if (deviceCount >= deviceLimit) return { ok: false, scope: "device" };
+  if (spend.dayCents + cents > limits.dayCents || spend.monthCents + cents > limits.monthCents) {
+    return { ok: false, scope: "budget" };
+  }
+  if (dev.dayCount >= limits.deviceDay) return { ok: false, scope: "device" };
+  if (dev.monthCount >= limits.deviceMonth) return { ok: false, scope: "device-month" };
 
-  await Promise.all([put(env, appKey, appCount + 1), put(env, deviceKey, deviceCount + 1)]);
+  await Promise.all([
+    save(env, "spend", { ...now, dayCents: spend.dayCents + cents, monthCents: spend.monthCents + cents }),
+    save(env, devKey, { ...now, dayCount: dev.dayCount + 1, monthCount: dev.monthCount + 1 }),
+  ]);
   return {
     ok: true,
-    remaining: Math.max(0, deviceLimit - deviceCount - 1),
+    remaining: Math.max(0, Math.min(limits.deviceDay - dev.dayCount, limits.deviceMonth - dev.monthCount) - 1),
+    // Nothing was produced, so give the money and the try-on back.
     refund: async () => {
-      const [a, d] = await Promise.all([count(env, appKey), count(env, deviceKey)]);
-      await Promise.all([put(env, appKey, Math.max(0, a - 1)), put(env, deviceKey, Math.max(0, d - 1))]);
+      const [s, d] = await Promise.all([counter(env, "spend", now), counter(env, devKey, now)]);
+      await Promise.all([
+        save(env, "spend", { ...now, dayCents: Math.max(0, s.dayCents - cents), monthCents: Math.max(0, s.monthCents - cents) }),
+        save(env, devKey, { ...now, dayCount: Math.max(0, d.dayCount - 1), monthCount: Math.max(0, d.monthCount - 1) }),
+      ]);
     },
   };
+}
+
+// GET /usage for the owner: how much has been spent against the budgets.
+async function usage(request, env) {
+  if (!env.ADMIN_TOKEN || request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN || !env.QUOTA) {
+    return json({ error: "not found" }, 404);
+  }
+  const limits = readLimits(env);
+  const now = periods();
+  const spend = await counter(env, "spend", now);
+  return json({
+    paused: env.PAUSED === "true" || Boolean(await env.QUOTA.get("config:paused")),
+    today: { day: now.day, spentUSD: spend.dayCents / 100, budgetUSD: limits.dayCents / 100 },
+    month: { month: now.month, spentUSD: spend.monthCents / 100, budgetUSD: limits.monthCents / 100 },
+    deviceLimits: { perDay: limits.deviceDay, perMonth: limits.deviceMonth },
+  });
+}
+
+function readLimits(env) {
+  return {
+    dayCents: Math.round(positiveNumber(env.DAILY_BUDGET_USD, DEFAULTS.DAILY_BUDGET_USD) * 100),
+    monthCents: Math.round(positiveNumber(env.MONTHLY_BUDGET_USD, DEFAULTS.MONTHLY_BUDGET_USD) * 100),
+    deviceDay: positiveInt(env.DEVICE_DAILY_LIMIT, DEFAULTS.DEVICE_DAILY_LIMIT),
+    deviceMonth: positiveInt(env.DEVICE_MONTHLY_LIMIT, DEFAULTS.DEVICE_MONTHLY_LIMIT),
+  };
+}
+
+function periods() {
+  const iso = new Date().toISOString();
+  return { day: iso.slice(0, 10), month: iso.slice(0, 7) };
+}
+
+// Reads a counter, starting the day's or month's numbers again when the period has changed.
+async function counter(env, key, now) {
+  let saved = {};
+  try { saved = JSON.parse(await env.QUOTA.get(key)) || {}; } catch { saved = {}; }
+  const sameDay = saved.day === now.day;
+  const sameMonth = saved.month === now.month;
+  return {
+    dayCents: sameDay ? Number(saved.dayCents) || 0 : 0,
+    monthCents: sameMonth ? Number(saved.monthCents) || 0 : 0,
+    dayCount: sameDay ? Number(saved.dayCount) || 0 : 0,
+    monthCount: sameMonth ? Number(saved.monthCount) || 0 : 0,
+  };
+}
+
+function save(env, key, value) {
+  return env.QUOTA.put(key, JSON.stringify(value), { expirationTtl: COUNTER_TTL_SECONDS });
 }
 
 // The app's device id if it sends one, otherwise the caller's IP. Hashed so no
@@ -155,12 +229,9 @@ async function deviceBucket(request) {
   return [...new Uint8Array(digest)].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function count(env, key) {
-  return Number(await env.QUOTA.get(key)) || 0;
-}
-
-function put(env, key, value) {
-  return env.QUOTA.put(key, String(value), { expirationTtl: COUNTER_TTL_SECONDS });
+function positiveNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function positiveInt(value, fallback) {

@@ -11,19 +11,35 @@ import os
 enum TryOnService {
     enum Failure: LocalizedError {
         case notConfigured, unsupported, badImage, server(String)
-        /// The worker's daily limit: this phone's (`daily == false`) or the whole app's.
-        case limit(daily: Bool)
+        /// One of the worker's spending limits was reached.
+        case limit(LimitScope)
+        /// Try-on is switched off on the server (spending kill switch).
+        case paused
         /// The plan's try-on allowance is used up; the paywall can offer more.
         case needsPlan
         var errorDescription: String? {
             switch self {
             case .notConfigured: "Try-on isn't connected yet."
-            case .limit(daily: false): "You've used today's try-ons. More tomorrow. Pieces already dressed stay saved."
-            case .limit(daily: true): "Try-on is very busy today. Please try again tomorrow."
+            case .limit(.device): "You've used today's try-ons. More tomorrow. Pieces already dressed stay saved."
+            case .limit(.deviceMonth): "You've used this month's try-ons on this phone. More next month. Pieces already dressed stay saved."
+            case .limit(.budget): "Try-on is very busy right now. Please try again later."
+            case .paused: "Try-on is taking a short break. Please try again later."
             case .needsPlan: "You've used your free try-ons. A plan gives you more every month."
             case .unsupported: "Try-on works with tops, sweaters, coats, dresses, trousers and skirts."
             case .badImage: "Couldn't read one of the photos."
             case .server(let message): message
+            }
+        }
+    }
+
+    /// Which worker limit stopped a try-on.
+    enum LimitScope: Sendable {
+        case device, deviceMonth, budget
+        init(_ scope: String?) {
+            switch scope {
+            case "device": self = .device
+            case "device-month": self = .deviceMonth
+            default: self = .budget
             }
         }
     }
@@ -407,7 +423,7 @@ enum TryOnService {
         let gate = FeatureGate.canStartTryOn(usedLifetime: TryOnUsage.lifetime, usedThisMonth: TryOnUsage.thisMonth,
                                              needed: needed, plan: Entitlements.shared.plan)
         if gate != .allowed { throw Failure.needsPlan }
-        if let left = remainingToday.withLock({ $0 }), left < needed { throw Failure.limit(daily: false) }
+        if let left = remainingToday.withLock({ $0 }), left < needed { throw Failure.limit(.device) }
     }
 
     // MARK: Network
@@ -512,8 +528,9 @@ enum TryOnService {
         let status = (response as? HTTPURLResponse)?.statusCode
         if let left = json["remaining"] as? Int { remainingToday.withLock { $0 = left } }
         if status == 429, json["error"] as? String == "quota" {
-            throw Failure.limit(daily: json["scope"] as? String == "daily")
+            throw Failure.limit(LimitScope(json["scope"] as? String))
         }
+        if status == 503, json["error"] as? String == "paused" { throw Failure.paused }
         guard status == 200 else {
             throw Failure.server("Try-on failed (\((response as? HTTPURLResponse)?.statusCode ?? 0)). Please try again.")
         }
