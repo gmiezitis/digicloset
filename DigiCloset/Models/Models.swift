@@ -16,6 +16,8 @@ final class Wearer {
     var bodyShapeRaw: String = ""
     var heightCm: Double = 0
     var weightKg: Double = 0
+    /// For children: their age in years, which sets the mannequin's size.
+    var age: Int = 0
 
     @Relationship(deleteRule: .cascade, inverse: \Garment.wearer) var garments: [Garment]? = []
     @Relationship(deleteRule: .cascade, inverse: \Look.wearer) var looks: [Look]? = []

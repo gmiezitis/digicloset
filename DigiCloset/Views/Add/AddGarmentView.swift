@@ -135,7 +135,7 @@ struct AddGarmentView: View {
                     HStack(spacing: 6) {
                         if item.state == .ready, let output = item.output, !queue.forPet,
                            TryOnConfig.isReady, TryOnService.supports(item.category) {
-                            MannequinPreview(cutout: output.cutout, category: item.category)
+                            MannequinPreview(cutout: output.cutout, category: item.category, base: .photo(for: owner))
                                 .transition(.opacity.combined(with: .move(edge: .leading)))
                         } else if item.state == .ready, let owner {
                             OnYouPreview(kind: owner.kind, fit: owner.fit,
@@ -637,19 +637,21 @@ private struct OnYouPreview: View {
 private struct MannequinPreview: View {
     let cutout: Data
     let category: GarmentCategory
+    /// The owner's own mannequin (body shape, child's age).
+    var base: TryOnService.Base = .mannequin
 
     @State private var result: UIImage?
     @State private var failed = false
     @State private var expanded = false
     @State private var shimmer = false
-    private var base: UIImage? { TryOnService.image(for: .mannequin) }
+    private var bare: UIImage? { TryOnService.image(for: base) }
 
     var body: some View {
         VStack(spacing: 6) {
             Spacer(minLength: 0)
             Button { if result != nil { expanded = true } } label: {
                 ZStack {
-                    if let shown = result ?? base {
+                    if let shown = result ?? bare {
                         Image(uiImage: shown).resizable().scaledToFit()
                             .opacity(result == nil ? 0.45 : 1)
                     }
@@ -681,8 +683,8 @@ private struct MannequinPreview: View {
             let data = cutout, category = category
             guard let piece = await Task.detached(priority: .userInitiated, operation: { TryOnService.piece(data, category: category) }).value
             else { failed = true; return }
-            if let hit = await TryOnService.cached([piece], on: .mannequin) { result = hit; return }
-            do { result = try await TryOnService.dress([piece], on: .mannequin) } catch { failed = true }
+            if let hit = await TryOnService.cached([piece], on: base) { result = hit; return }
+            do { result = try await TryOnService.dress([piece], on: base) } catch { failed = true }
         }
         .fullScreenCover(isPresented: $expanded) {
             ZStack(alignment: .topTrailing) {

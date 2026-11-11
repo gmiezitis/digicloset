@@ -27,17 +27,37 @@ enum TryOnService {
 
     /// Who wears the garment: the built-in photo-real mannequin or the user's own photo.
     enum Base: String, CaseIterable, Identifiable, Sendable {
-        case mannequin, me, dog, cat
+        case mannequin, me, dog, cat, man
+        case hourglass = "mannequin-hourglass", pear = "mannequin-pear", apple = "mannequin-apple"
+        case invertedTriangle = "mannequin-invertedTriangle"
+        case child2 = "child-2", child6 = "child-6", child10 = "child-10", child14 = "child-14"
         var id: String { rawValue }
         /// What the user can pick on the try-on screen.
         static var allCases: [Base] { [.mannequin, .me] }
-        static func photo(for kind: WearerKind) -> Base {
-            switch kind {
-            case .dog: .dog
-            case .cat: .cat
-            default: .mannequin
+
+        /// The photo model for someone: shaped like them, or sized by a child's age.
+        static func photo(for wearer: Wearer?, kind: WearerKind? = nil) -> Base {
+            switch kind ?? wearer?.kind ?? .woman {
+            case .dog: return .dog
+            case .cat: return .cat
+            case .man: return .man
+            case .child:
+                let age = wearer?.age ?? 0
+                return age == 0 ? .child6 : age <= 3 ? .child2 : age <= 7 ? .child6 : age <= 11 ? .child10 : .child14
+            case .woman:
+                switch wearer?.bodyShape {
+                case .hourglass: return .hourglass
+                case .pear: return .pear
+                case .apple: return .apple
+                case .invertedTriangle: return .invertedTriangle
+                default: return .mannequin
+                }
             }
         }
+
+        var isPet: Bool { self == .dog || self == .cat }
+        /// The adult woman's mannequin, in any shape: same pose and framing.
+        var isWomanMannequin: Bool { [.mannequin, .hourglass, .pear, .apple, .invertedTriangle].contains(self) }
         var title: String { self == .mannequin ? "Mannequin" : "My photo" }
     }
 
@@ -108,31 +128,36 @@ enum TryOnService {
 
     private static var personURL: URL { URL.documentsDirectory.appending(path: "tryon-person.jpg") }
 
-    private static let mannequinData: Data? =
-        Bundle.main.url(forResource: "tryon-mannequin", withExtension: "jpg").flatMap { try? Data(contentsOf: $0) }
-    private static let mannequinHash: String? = mannequinData.map(hash)
-    nonisolated(unsafe) private static var mannequinImage: UIImage?
+    /// Bundled base photos, their hashes and decoded images, loaded once each.
+    nonisolated(unsafe) private static var baseCache: [Base: (data: Data, hash: String)] = [:]
+    nonisolated(unsafe) private static var imageCache: [Base: UIImage] = [:]
+    private static let baseLock = NSLock()
+
+    private static func bundled(_ base: Base) -> (data: Data, hash: String)? {
+        if let hit = baseLock.withLock({ baseCache[base] }) { return hit }
+        guard let url = Bundle.main.url(forResource: "tryon-\(base.rawValue)", withExtension: "jpg"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        let entry = (data, hash(data))
+        baseLock.withLock { baseCache[base] = entry }
+        return entry
+    }
+
+    private static var mannequinData: Data? { bundled(.mannequin)?.data }
 
     static func baseData(_ base: Base) -> Data? {
-        switch base {
-        case .mannequin: mannequinData
-        case .me: try? Data(contentsOf: personURL)
-        case .dog, .cat: Bundle.main.url(forResource: "tryon-\(base.rawValue)", withExtension: "jpg").flatMap { try? Data(contentsOf: $0) }
-        }
+        base == .me ? try? Data(contentsOf: personURL) : bundled(base)?.data
     }
 
     private static func baseHash(_ base: Base, _ data: Data) -> String {
-        base == .mannequin ? (mannequinHash ?? hash(data)) : hash(data)
+        base == .me ? hash(data) : (bundled(base)?.hash ?? hash(data))
     }
 
     static func image(for base: Base) -> UIImage? {
-        if base == .mannequin {
-            if let mannequinImage { return mannequinImage }
-            let image = mannequinData.flatMap(UIImage.init(data:))?.preparingForDisplay()
-            mannequinImage = image
-            return image
-        }
-        return baseData(base).flatMap(UIImage.init(data:))
+        guard base != .me else { return baseData(base).flatMap(UIImage.init(data:)) }
+        if let hit = baseLock.withLock({ imageCache[base] }) { return hit }
+        let image = bundled(base).flatMap { UIImage(data: $0.data) }?.preparingForDisplay()
+        if let image { baseLock.withLock { imageCache[base] = image } }
+        return image
     }
 
     static func savePerson(_ data: Data) throws {
@@ -250,9 +275,16 @@ enum TryOnService {
 
     nonisolated(unsafe) private static let combos = NSCache<NSString, UIImage>()
 
+    /// Example pieces come ready-dressed: on the standard mannequin and pets as
+    /// tryon-<piece>.jpg, on each body shape as tryon-<piece>--<shape>.jpg.
     private static func presetData(_ piece: Piece, _ base: Base) -> Data? {
-        guard base != .me, let name = piece.preset,
-              let url = Bundle.main.url(forResource: "tryon-\(name)", withExtension: "jpg") else { return nil }
+        guard let name = piece.preset else { return nil }
+        let file = switch base {
+        case .mannequin, .dog, .cat: "tryon-\(name)"
+        case .hourglass, .pear, .apple, .invertedTriangle: "tryon-\(name)--\(base.rawValue)"
+        default: ""
+        }
+        guard !file.isEmpty, let url = Bundle.main.url(forResource: file, withExtension: "jpg") else { return nil }
         return try? Data(contentsOf: url)
     }
 
@@ -278,7 +310,7 @@ enum TryOnService {
                 guard let data = presetData(piece, base) ?? read(chainKey(baseKey, [piece])) else { return nil }
                 singles.append(data)
             }
-            return compose(baseData, singles, human: base == .mannequin || base == .me)
+            return compose(baseData, singles, human: !base.isPet)
         }.value
         if let image { combos.setObject(image, forKey: comboKey) }
         return image
@@ -297,7 +329,7 @@ enum TryOnService {
         }
         var singles: [Data] = []
         for task in tasks { singles.append(try await task.value) }
-        let ready = singles, human = base == .mannequin || base == .me
+        let ready = singles, human = !base.isPet
         guard let image = await Task.detached(priority: .userInitiated, operation: { compose(baseData, ready, human: human) }).value
         else { throw Failure.badImage }
         combos.setObject(image, forKey: "q" + chainKey(baseKey, ordered) as NSString)
@@ -322,26 +354,26 @@ enum TryOnService {
     // MARK: Accessories
 
     /// The bare mannequin wearing just this accessory, if made before. No network.
-    static func accessoryCached(_ piece: Piece) -> Data? {
-        guard let baseData = mannequinData, let baseKey = mannequinHash else { return nil }
-        return presetData(piece, .mannequin) ?? read(chainKey(baseKey, [piece]))
+    static func accessoryCached(_ piece: Piece, on base: Base) -> Data? {
+        guard let baseData = baseData(base) else { return nil }
+        return presetData(piece, base) ?? read(chainKey(baseHash(base, baseData), [piece]))
     }
 
     /// Dresses the bare mannequin in one accessory (once; saved after that).
     @MainActor
-    static func accessoryLayer(_ piece: Piece) async throws -> Data {
-        guard let baseData = mannequinData, let baseKey = mannequinHash else { throw Failure.badImage }
-        return try await single(piece, baseData: baseData, baseKey: baseKey, base: .mannequin)
+    static func accessoryLayer(_ piece: Piece, on base: Base) async throws -> Data {
+        guard let baseData = baseData(base) else { throw Failure.badImage }
+        return try await single(piece, baseData: baseData, baseKey: baseHash(base, baseData), base: base)
     }
 
     /// Lays accessory layers (from `accessoryLayer`) over a dressed mannequin.
-    static func accessorize(_ outfit: UIImage, with layers: [(Data, GarmentCategory)]) -> UIImage? {
-        guard var current = outfit.cgImage, let base = mannequinData.flatMap(UIImage.init(data:))?.cgImage else { return nil }
+    static func accessorize(_ outfit: UIImage, with layers: [(Data, GarmentCategory)], on target: Base) -> UIImage? {
+        guard var current = outfit.cgImage, let base = baseData(target).flatMap(UIImage.init(data:))?.cgImage else { return nil }
         // Shoes, then bag, then hat on top.
         let order: [GarmentCategory] = [.shoes, .bag, .hat]
         for (data, category) in layers.sorted(by: { order.firstIndex(of: $0.1) ?? 0 < order.firstIndex(of: $1.1) ?? 0 }) {
             guard let layer = UIImage(data: data)?.cgImage,
-                  let next = TryOnCompositor.overlay(base: base, outfit: current, layer: layer, region: region(for: category),
+                  let next = TryOnCompositor.overlay(base: base, outfit: current, layer: layer, region: target.isWomanMannequin ? region(for: category) : CGRect(x: 0, y: 0, width: 1, height: 1),
                                                      skipBareSkin: category == .bag) else { continue }
             current = next
         }

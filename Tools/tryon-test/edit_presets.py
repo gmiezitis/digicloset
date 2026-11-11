@@ -28,16 +28,17 @@ JOBS = [
     ("woven-tote", "mannequin", ACC["bag"], "woven leather tote bag"),
 ]
 
-for slug, base, template, what in JOBS:
-    dest = RES / f"tryon-{slug}.jpg"
-    if dest.exists() and slug not in sys.argv[1:]:
-        continue
-    piece = run.OUT / "edit" / f"in-{slug}.jpg"
-    subprocess.run(["sips", "-s", "format", "jpeg", "-Z", "768", str(RES / f"example-{slug}.heic"), "--out", str(piece)], capture_output=True)
-    prompt = template.format(animal=base, what=what) + KEEP
-    print(f"{slug}…", flush=True)
-    r = run.call(MODEL, {"prompt": prompt, "image_urls": [run.data_uri(RES / f"tryon-{base}.jpg"), run.data_uri(piece)],
-                         "num_images": 1, "output_format": "jpeg", "aspect_ratio": "2:3", "sync_mode": True})
-    run.save(r["images"][0]["url"], dest)
-    subprocess.run(["sips", "-Z", "1152", "-s", "formatOptions", "70", str(dest)], capture_output=True)
-print("done")
+if __name__ == "__main__":
+    for slug, base, template, what in JOBS:
+        dest = RES / f"tryon-{slug}.jpg"
+        if dest.exists() and slug not in sys.argv[1:]:
+            continue
+        piece = run.OUT / "edit" / f"in-{slug}.jpg"
+        subprocess.run(["sips", "-s", "format", "jpeg", "-Z", "768", str(RES / f"example-{slug}.heic"), "--out", str(piece)], capture_output=True)
+        prompt = template.format(animal=base, what=what) + KEEP
+        print(f"{slug}…", flush=True)
+        r = run.call(MODEL, {"prompt": prompt, "image_urls": [run.data_uri(RES / f"tryon-{base}.jpg"), run.data_uri(piece)],
+                             "num_images": 1, "output_format": "jpeg", "aspect_ratio": "2:3", "sync_mode": True})
+        run.save(r["images"][0]["url"], dest)
+        subprocess.run(["sips", "-Z", "1152", "-s", "formatOptions", "70", str(dest)], capture_output=True)
+    print("done")

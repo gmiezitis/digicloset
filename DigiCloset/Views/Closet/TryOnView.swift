@@ -72,7 +72,7 @@ struct TryOnView: View {
                     if working {
                         VStack(spacing: 12) {
                             ProgressView().controlSize(.large)
-                            Text(base == .mannequin ? "Dressing the mannequin…" : "Dressing you…").font(Theme.display(18))
+                            Text(base != .me ? "Dressing the mannequin…" : "Dressing you…").font(Theme.display(18))
                             Text(step.1 > 1 ? "Piece \(step.0) of \(step.1) · about 10 s each" : "About 10 seconds")
                                 .font(.footnote).foregroundStyle(Theme.muted)
                         }
@@ -121,7 +121,7 @@ struct TryOnView: View {
         }
     }
 
-    private var base: TryOnService.Base { TryOnService.Base(rawValue: baseRaw) ?? .mannequin }
+    private var base: TryOnService.Base { baseRaw == TryOnService.Base.me.rawValue ? .me : .photo(for: garments.first?.wearer) }
 
     private func reload(autoStart: Bool) {
         person = TryOnService.image(for: base)
@@ -130,7 +130,7 @@ struct TryOnView: View {
             let hit = await TryOnService.cached(pieces, on: wanted)
             guard wanted == base else { return }
             result = hit
-            if autoStart, hit == nil, person != nil, wanted == .mannequin, !pieces.isEmpty { await run() }
+            if autoStart, hit == nil, person != nil, wanted != .me, !pieces.isEmpty { await run() }
         }
     }
 

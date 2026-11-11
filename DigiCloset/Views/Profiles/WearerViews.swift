@@ -63,6 +63,7 @@ struct WearerEditor: View {
     @State private var name = ""
     @State private var kind: WearerKind = .woman
     @State private var accent = Theme.accents[0]
+    @State private var age = 6
     @State private var confirmDelete = false
 
     var body: some View {
@@ -105,6 +106,20 @@ struct WearerEditor: View {
                         }
                     }
 
+                    if kind == .child {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Eyebrow("Age")
+                            HStack {
+                                Text(age == 1 ? "1 year" : "\(age) years").font(Theme.display(22))
+                                Spacer()
+                                Stepper("Age", value: $age, in: 1...16).labelsHidden()
+                            }
+                            Text("Sets the size of their mannequin.")
+                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     VStack(alignment: .leading, spacing: 10) {
                         Eyebrow("Signature colour")
                         HStack(spacing: 12) {
@@ -144,6 +159,7 @@ struct WearerEditor: View {
                 name = wearer.name
                 kind = wearer.kind
                 accent = wearer.accentHex
+                if wearer.age > 0 { age = wearer.age }
             }
         }
     }
@@ -154,9 +170,11 @@ struct WearerEditor: View {
             wearer.name = trimmed
             wearer.kind = kind
             wearer.accentHex = accent
+            wearer.age = kind == .child ? age : 0
         } else {
             let added = Wearer(name: trimmed, kind: kind, accentHex: accent, sortIndex: (wearers.map(\.sortIndex).max() ?? 0) + 1)
             context.insert(added)
+            if kind == .child { added.age = age }
             if kind.isPet { SampleData.starterWardrobe(for: added, in: context) }
         }
         dismiss()

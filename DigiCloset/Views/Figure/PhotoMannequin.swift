@@ -8,6 +8,8 @@ struct PhotoMannequin: View {
     let garments: [Garment]
     /// Who wears it; defaults to the pieces' owner.
     var kind: WearerKind? = nil
+    /// Their shape or age picks the mannequin; defaults to the pieces' owner.
+    var wearer: Wearer? = nil
     var height: CGFloat = 380
     /// Start dressing on its own (e.g. only for the focused card).
     var autoDress = true
@@ -25,7 +27,8 @@ struct PhotoMannequin: View {
     static func canShow(_ kind: WearerKind) -> Bool { TryOnConfig.isReady }
 
     private var who: WearerKind { kind ?? garments.first?.wearer?.kind ?? .woman }
-    private var base: TryOnService.Base { .photo(for: who) }
+    private var owner: Wearer? { wearer ?? garments.first?.wearer }
+    private var base: TryOnService.Base { .photo(for: owner, kind: kind) }
     private var wearable: [Garment] {
         garments.filter { who.isPet ? TryOnService.isPetWear($0.category) : TryOnService.supports($0.category) }
     }
@@ -119,8 +122,8 @@ struct PhotoMannequin: View {
                 withAnimation(.linear(duration: 0)) { shimmer = false }
             }
         }
-        .task(id: "\(key)|\(autoDress)") { await load() }
-        .task(id: "\(dressed?.hash ?? 0)|\(accessoryKey)") { await accessorize() }
+        .task(id: "\(key)|\(autoDress)|\(base.rawValue)") { await load() }
+        .task(id: "\(dressed?.hash ?? 0)|\(accessoryKey)|\(base.rawValue)") { await accessorize() }
     }
 
     private func load() async {
@@ -161,16 +164,16 @@ struct PhotoMannequin: View {
         let categories = placed.map(\.category)
         var layers: [(Data, GarmentCategory)] = []
         for (piece, category) in zip(pieces, categories) {
-            if let hit = TryOnService.accessoryCached(piece) {
+            if let hit = TryOnService.accessoryCached(piece, on: base) {
                 layers.append((hit, category))
-            } else if autoDress, let made = try? await TryOnService.accessoryLayer(piece) {
+            } else if autoDress, let made = try? await TryOnService.accessoryLayer(piece, on: base) {
                 layers.append((made, category))
             }
             guard !Task.isCancelled else { return }
         }
         guard !layers.isEmpty else { styled = nil; return }
-        let ready = layers
-        let image = await Task.detached(priority: .userInitiated) { TryOnService.accessorize(dressed, with: ready) }.value
+        let ready = layers, target = base
+        let image = await Task.detached(priority: .userInitiated) { TryOnService.accessorize(dressed, with: ready, on: target) }.value
         guard !Task.isCancelled else { return }
         styled = image
     }

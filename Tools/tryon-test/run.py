@@ -55,11 +55,16 @@ def call(endpoint, payload, timeout=300):
         data=json.dumps(payload).encode(),
         headers={"Authorization": f"Key {key()}", "Content-Type": "application/json"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"{endpoint}: HTTP {e.code} {e.read().decode()[:300]}")
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"{endpoint}: HTTP {e.code} {e.read().decode()[:300]}")
+        except Exception:
+            # Dropped connections happen; try again.
+            if attempt == 2:
+                raise
 
 
 def save(url, path):

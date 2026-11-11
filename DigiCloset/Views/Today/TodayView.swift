@@ -155,7 +155,7 @@ struct TodayView: View {
     private var hero: some View {
         if myCloset.isEmpty {
             VStack(spacing: 14) {
-                PhotoMannequin(garments: [], kind: me?.kind, height: 300)
+                PhotoMannequin(garments: [], kind: me?.kind, wearer: me, height: 300)
                 Text("Add a few clothes and you'll get a look for every day.")
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.muted)
