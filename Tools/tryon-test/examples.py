@@ -43,6 +43,13 @@ PIECES = {
     "blush-bandana": (FLAT, "a blush pink cotton pet bandana with tiny white polka dots, folded into a triangle"),
     "velvet-collar": (OBJ, "a slim black velvet cat collar with a small gold bell"),
     "sage-sweater": (FLAT, "a small sage green knitted cat sweater"),
+    # Kids
+    "striped-tee": (FLAT, "a small children's navy and white breton striped cotton t-shirt with short sleeves"),
+    "kids-jeans": (FLAT, "small children's mid-blue straight-leg denim jeans"),
+    "pinafore-dress": (FLAT, "a small children's mustard yellow corduroy pinafore dress"),
+    "yellow-raincoat": (FLAT, "a small children's bright yellow hooded rain jacket with snap buttons, sleeves laid alongside"),
+    "kids-sneakers": (OBJ, "a pair of small children's white and navy canvas low-top sneakers with velcro straps"),
+    "knit-beanie": (OBJ, "a small children's cream knitted beanie hat with a pom-pom"),
 }
 
 

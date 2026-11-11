@@ -699,6 +699,8 @@ enum ExamplePhotos {
         "wide-leg-trousers": "Arket", "cable-knit": "Ware of the Dog", "cream-collar": "Wild One",
         "rose-bandana": "Maxbone", "rain-coat": "Barbour", "blush-bandana": "Meowtique", "velvet-collar": "Wild One",
         "sage-sweater": "Little Knits",
+        "striped-tee": "Petit Bateau", "kids-jeans": "Mini Rodini", "pinafore-dress": "Bonpoint",
+        "yellow-raincoat": "Stutterheim", "kids-sneakers": "Veja", "knit-beanie": "Bobo Choses",
     ]
 
     static func slug(_ name: String) -> String {

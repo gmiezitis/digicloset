@@ -183,7 +183,7 @@ struct WearerEditor: View {
             let added = Wearer(name: trimmed, kind: kind, accentHex: accent, sortIndex: (wearers.map(\.sortIndex).max() ?? 0) + 1)
             context.insert(added)
             if kind == .child { added.age = age }
-            if kind.isPet { SampleData.starterWardrobe(for: added, in: context) }
+            if SampleData.getsStarter(kind) { SampleData.starterWardrobe(for: added, in: context) }
         }
         dismiss()
     }

@@ -295,12 +295,12 @@ enum TryOnService {
     nonisolated(unsafe) private static let combos = NSCache<NSString, UIImage>()
 
     /// Example pieces come ready-dressed: on the standard mannequin and pets as
-    /// tryon-<piece>.jpg, on each body shape as tryon-<piece>--<shape>.jpg.
+    /// tryon-<piece>.jpg, on each body shape and child age as tryon-<piece>--<base>.jpg.
     private static func presetData(_ piece: Piece, _ base: Base) -> Data? {
         guard let name = piece.preset else { return nil }
         let file = switch base {
         case .mannequin, .dog, .cat: "tryon-\(name)"
-        case .hourglass, .pear, .apple, .invertedTriangle: "tryon-\(name)--\(base.rawValue)"
+        case .hourglass, .pear, .apple, .invertedTriangle, .child2, .child6, .child10, .child14: "tryon-\(name)--\(base.rawValue)"
         default: ""
         }
         guard !file.isEmpty, let url = Bundle.main.url(forResource: file, withExtension: "jpg") else { return nil }

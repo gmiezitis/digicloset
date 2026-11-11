@@ -116,11 +116,18 @@ enum SampleData {
         try? context.save()
     }
 
-    /// A new pet starts with a few real pieces (the bundled example photos), so
-    /// Shuffle and matching have something to work with right away.
+    /// Whether this wearer gets a starter wardrobe: pets and children.
+    static func getsStarter(_ kind: WearerKind) -> Bool { kind.isPet || kind == .child }
+
+    /// A new pet or child starts with a few real pieces (the bundled example
+    /// photos), so Shuffle and matching have something to work with right away.
     @MainActor
     static func starterWardrobe(for pet: Wearer, in context: ModelContext) {
-        let pieces: [(String, String, GarmentCategory, String)] = pet.kind == .cat
+        let pieces: [(String, String, GarmentCategory, String)] = pet.kind == .child
+            ? [("Striped tee", "Petit Bateau", .top, "2E3B6B"), ("Kids jeans", "Mini Rodini", .bottom, "4A6A9A"),
+               ("Pinafore dress", "Bonpoint", .dress, "C9952E"), ("Yellow raincoat", "Stutterheim", .outerwear, "F2C230"),
+               ("Kids sneakers", "Veja", .shoes, "F3F2EE"), ("Knit beanie", "Bobo Choses", .hat, "EDE3CF")]
+            : pet.kind == .cat
             ? [("Sage sweater", "Little Knits", .sweater, "A9B79A"), ("Blush bandana", "Meowtique", .bandana, "E8C3BC"),
                ("Velvet collar", "Wild One", .collar, "2A2C30")]
             : [("Cable knit", "Ware of the Dog", .sweater, "B88A5A"), ("Rain coat", "Barbour", .sweater, "2E3B55"),
@@ -135,13 +142,13 @@ enum SampleData {
         Task { await GarmentStudio.fillMissing(in: context) }
     }
 
-    /// Pets added before starter wardrobes existed get one, once. A pet whose
-    /// owner later empties the wardrobe on purpose isn't refilled.
+    /// Pets and children added before starter wardrobes existed get one, once.
+    /// One whose wardrobe is later emptied on purpose isn't refilled.
     @MainActor
     static func stockEmptyPets(in context: ModelContext) {
         let key = "starterWardrobe.stocked"
         var stocked = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
-        let pets = ((try? context.fetch(FetchDescriptor<Wearer>())) ?? []).filter { $0.kind.isPet }
+        let pets = ((try? context.fetch(FetchDescriptor<Wearer>())) ?? []).filter { getsStarter($0.kind) }
         for pet in pets where !stocked.contains(pet.id.uuidString) {
             if (pet.garments ?? []).isEmpty { starterWardrobe(for: pet, in: context) }
             stocked.insert(pet.id.uuidString)
